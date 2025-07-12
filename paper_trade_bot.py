@@ -21,11 +21,18 @@ MONGO_URI = os.getenv("MONGO_URI") or "mongodb://localhost:27017"
 # === MONGO SETUP ===
 client = MongoClient(MONGO_URI, tls=True, tlsAllowInvalidCertificates=True)
 
+try:
+    print("✅ MongoDB connection OK:", client.admin.command("ping"))
+except Exception as e:
+    print("❌ MongoDB connection FAILED:", e)
+    
 
+print("✅ Ping MongoDB:", client.admin.command("ping"))  # Optional check
 db = client["PaperTrade"]
 logs_collection = db["TradeLogs"]
 stocks_collection = db["TrackedStocks"]
 balance_collection = db["Balance"]
+
 
 # === STATES ===
 ASK_BALANCE, ADD_SYMBOL, ADD_ENTRY, ADD_SL, ADD_QTY, ADD_TARGET = range(6)
