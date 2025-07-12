@@ -1,6 +1,3 @@
-PORT = int(os.environ.get("PORT", 8000))
-APP_URL = "https://papertradingbot.onrender.com"
-
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -15,6 +12,9 @@ from pymongo import MongoClient
 from telegram.ext import Updater, CommandHandler, CallbackContext, ConversationHandler, MessageHandler, Filters
 from telegram import Update
 from apscheduler.schedulers.background import BackgroundScheduler
+
+PORT = int(os.environ.get("PORT", 8000))
+APP_URL = "https://papertradingbot.onrender.com"
 
 # === ENV CONFIG ===
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -342,7 +342,7 @@ def main():
     stocks.clear()
     for doc in stocks_collection.find():
         stocks.append(doc)
-        
+
     updater.start_webhook(
         listen="0.0.0.0",
         port=PORT,
