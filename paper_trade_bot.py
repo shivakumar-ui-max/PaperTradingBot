@@ -270,6 +270,7 @@ def track_stocks(bot):
                 if data.empty: continue
                 price = float(data["Close"].dropna().iloc[-1])
 
+                # BUY
                 if stock["position"] == 0 and price >= stock["entry"]:
                     cost = stock["qty"] * price
                     if balance["value"] < cost:
@@ -277,9 +278,12 @@ def track_stocks(bot):
                     stock["entry_price"] = price
                     stock["position"] = stock["qty"]
                     balance["value"] -= cost
+                    balance_collection.update_one({}, {"$set": {"value": balance["value"]}}, upsert=True)  # ✅ Save to DB
+
                     send_message(bot, f"🟢 BUY {stock['symbol']} Qty: {stock['qty']} @ ₹{price:.2f}\nRemaining: ₹{balance['value']:.2f}")
                     trade_log(stock["symbol"], "BUY", price, stock["qty"], "", "ENTRY", balance["value"])
 
+                # SELL
                 elif stock["position"] > 0:
                     sell_reason = None
                     if price <= stock["sl"]:
@@ -290,12 +294,16 @@ def track_stocks(bot):
                     if sell_reason:
                         pnl = (price - stock["entry_price"]) * stock["qty"]
                         balance["value"] += price * stock["qty"]
+                        balance_collection.update_one({}, {"$set": {"value": balance["value"]}}, upsert=True)  # ✅ Save to DB
+
                         stock["position"] = 0
                         send_message(bot, f"🔴 SELL {stock['symbol']} ({sell_reason}) @ ₹{price:.2f} | P&L: ₹{pnl:.2f}")
                         trade_log(stock["symbol"], "SELL", price, stock["qty"], pnl, sell_reason, balance["value"])
+
             except Exception as e:
                 print(f"❌ Error in tracking {stock['symbol']}: {e}")
         time.sleep(60)
+
 
 def main():
     updater = Updater(token=TELEGRAM_BOT_TOKEN, use_context=True)
