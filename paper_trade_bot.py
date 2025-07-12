@@ -19,7 +19,9 @@ NEWS_API_KEY = os.getenv("NEWS_API_KEY")
 MONGO_URI = os.getenv("MONGO_URI") or "mongodb://localhost:27017"
 
 # === MONGO SETUP ===
-client = MongoClient(MONGO_URI)
+client = MongoClient(MONGO_URI, tls=True, tlsAllowInvalidCertificates=True)
+
+
 db = client["PaperTrade"]
 logs_collection = db["TradeLogs"]
 stocks_collection = db["TrackedStocks"]
