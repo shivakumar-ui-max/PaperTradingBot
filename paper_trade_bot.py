@@ -1,3 +1,7 @@
+PORT = int(os.environ.get("PORT", 8000))
+APP_URL = "https://papertradingbot.onrender.com"
+
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -25,7 +29,7 @@ try:
     print("✅ MongoDB connection OK:", client.admin.command("ping"))
 except Exception as e:
     print("❌ MongoDB connection FAILED:", e)
-    
+
 
 print("✅ Ping MongoDB:", client.admin.command("ping"))  # Optional check
 db = client["PaperTrade"]
@@ -338,9 +342,15 @@ def main():
     stocks.clear()
     for doc in stocks_collection.find():
         stocks.append(doc)
-
-    updater.start_polling()
+        
+    updater.start_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        url_path=TELEGRAM_BOT_TOKEN,
+        webhook_url=f"{APP_URL}/{TELEGRAM_BOT_TOKEN}"
+    )
     updater.idle()
+
 
 if __name__ == '__main__':
     main()
