@@ -88,28 +88,39 @@ def fetch_news(query):
     try:
         url = "https://newsapi.org/v2/top-headlines"
         params = {
-            "q": query,
             "language": "en",
             "category": "business",
-            "sortBy": "publishedAt",
             "apiKey": NEWS_API_KEY
         }
-        response = requests.get(url, params=params).json()
 
-        if response.get("status") != "ok":
-            return f"❌ API Error: {response.get('message', 'Unknown error')}"
+        # Use country or category for Free Plan
+        if query.lower() == "india":
+            params["country"] = "in"
+        elif query.lower() == "global":
+            params.pop("category", None)  # Global news doesn't support 'business' + 'global'
+            url = "https://newsapi.org/v2/everything"
+            params["q"] = "business"
+            params["sortBy"] = "publishedAt"
 
-        articles = response.get("articles", [])[:5]
+        response = requests.get(url, params=params)
+
+        if response.status_code != 200:
+            return f"❌ HTTP Error: {response.status_code}\n{response.text}"
+
+        data = response.json()
+        if data.get("status") != "ok":
+            return f"❌ API Error: {data.get('message', 'Unknown error')}"
+
+        articles = data.get("articles", [])[:5]
         if not articles:
-            return f"📭 No relevant news found for '{query}'."
+            return f"📭 No news found for '{query}'."
 
-        message = f"📰 Top Business News for '{query}':\n\n"
+        msg = f"📰 Top News for '{query}':\n\n"
         for art in articles:
             title = art.get("title", "")
             url = art.get("url", "")
-            sentiment = sentiment_icon(title)
-            message += f"{sentiment} {title}\n🔗 {url}\n\n"
-        return message
+            msg += f"➖ {title}\n🔗 {url}\n\n"
+        return msg
 
     except Exception as e:
         return f"❌ Error fetching news: {e}"
