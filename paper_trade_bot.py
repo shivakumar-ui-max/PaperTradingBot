@@ -7,6 +7,7 @@ import yfinance as yf
 import time
 import threading
 import requests
+import textwrap
 from datetime import datetime
 from pymongo import MongoClient
 from telegram.ext import Updater, CommandHandler, CallbackContext, ConversationHandler, MessageHandler, Filters
@@ -92,11 +93,10 @@ def fetch_news(query):
             "apiKey": NEWS_API_KEY
         }
 
-        # Use country or category for Free Plan
         if query.lower() == "india":
             params["country"] = "in"
         elif query.lower() == "global":
-            params.pop("category", None)  # Global news doesn't support 'business' + 'global'
+            params.pop("category", None)
             url = "https://newsapi.org/v2/everything"
             params["q"] = "business"
             params["sortBy"] = "publishedAt"
@@ -114,29 +114,20 @@ def fetch_news(query):
         if not articles:
             return [f"📭 No news found for '{query}'."]
 
-        # Build message parts (split if too long)
-        msg_parts = []
-        current_msg = f"📰 Top News for '{query}':\n\n"
-
+        message = f"📰 Top News for '{query}':\n\n"
         for art in articles:
             title = art.get("title", "")
             link = art.get("url", "")
-            news_line = f"➖ {title}\n🔗 {link}\n\n"
+            message += f"➖ {title}\n🔗 {link}\n\n"
 
-            # Check if adding the news would exceed Telegram limit
-            if len(current_msg) + len(news_line) > 4000:
-                msg_parts.append(current_msg)
-                current_msg = ""
+        # Split long message into chunks of 4000 safely
+        chunks = textwrap.wrap(message, width=4000, break_long_words=False, break_on_hyphens=False)
 
-            current_msg += news_line
-
-        if current_msg:
-            msg_parts.append(current_msg)
-
-        return msg_parts
+        return chunks
 
     except Exception as e:
         return [f"❌ Error fetching news: {e}"]
+
 
 # === COMMAND HANDLERS ===
 def stock_news(update: Update, context: CallbackContext):
