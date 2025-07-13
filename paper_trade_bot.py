@@ -79,11 +79,10 @@ def sentiment_icon(text):
     if any(w in text for w in POSITIVE_KEYWORDS): return "✅"
     if any(w in text for w in NEGATIVE_KEYWORDS): return "❌"
     return "➖"
-
 # === NEWS FETCHER ===
 def fetch_news(query):
     if not NEWS_API_KEY:
-        return "❌ NEWS_API_KEY is missing."
+        return ["❌ NEWS_API_KEY is missing."]
 
     try:
         url = "https://newsapi.org/v2/top-headlines"
@@ -105,41 +104,57 @@ def fetch_news(query):
         response = requests.get(url, params=params)
 
         if response.status_code != 200:
-            return f"❌ HTTP Error: {response.status_code}\n{response.text}"
+            return [f"❌ HTTP Error: {response.status_code}\n{response.text}"]
 
         data = response.json()
         if data.get("status") != "ok":
-            return f"❌ API Error: {data.get('message', 'Unknown error')}"
+            return [f"❌ API Error: {data.get('message', 'Unknown error')}"]
 
         articles = data.get("articles", [])[:5]
         if not articles:
-            return f"📭 No news found for '{query}'."
+            return [f"📭 No news found for '{query}'."]
 
-        msg = f"📰 Top News for '{query}':\n\n"
+        # Build message parts (split if too long)
+        msg_parts = []
+        current_msg = f"📰 Top News for '{query}':\n\n"
+
         for art in articles:
             title = art.get("title", "")
-            url = art.get("url", "")
-            msg += f"➖ {title}\n🔗 {url}\n\n"
-        return msg
+            link = art.get("url", "")
+            news_line = f"➖ {title}\n🔗 {link}\n\n"
+
+            # Check if adding the news would exceed Telegram limit
+            if len(current_msg) + len(news_line) > 4000:
+                msg_parts.append(current_msg)
+                current_msg = ""
+
+            current_msg += news_line
+
+        if current_msg:
+            msg_parts.append(current_msg)
+
+        return msg_parts
 
     except Exception as e:
-        return f"❌ Error fetching news: {e}"
-
+        return [f"❌ Error fetching news: {e}"]
 
 # === COMMAND HANDLERS ===
 def stock_news(update: Update, context: CallbackContext):
-    msg = fetch_news("india")
-    sent = update.message.reply_text(msg)
-    sent_messages.append(sent.message_id)
+    msgs = fetch_news("india")
+    for msg in msgs:
+        sent = update.message.reply_text(msg)
+        sent_messages.append(sent.message_id)
 
 def global_news(update: Update, context: CallbackContext):
-    msg = fetch_news("global")
-    sent = update.message.reply_text(msg)
-    sent_messages.append(sent.message_id)
+    msgs = fetch_news("global")
+    for msg in msgs:
+        sent = update.message.reply_text(msg)
+        sent_messages.append(sent.message_id)
+
 
 def view_balance(update: Update, context: CallbackContext):
     bal_text = f"💰 Current Balance: ₹{balance['value']:.2f}"
-    if not stocks:
+    if stocks_collection.count_documents({}) == 0:
         msg = f"{bal_text}\n📉 You are not holding or tracking any stocks."
     else:
         msg = f"{bal_text}\n📊 You are currently tracking/holding {len(stocks)} stocks."
@@ -230,7 +245,7 @@ def add_stock_qty(update: Update, context: CallbackContext):
         return ADD_QTY
 
 def reset_stocks(update: Update, context: CallbackContext):
-    stocks.clear()
+    stocks_collection.delete_many({})
     stocks_collection.delete_many({})
     msg = "♻️ All tracked stocks have been reset successfully."
     sent = update.message.reply_text(msg)
@@ -291,9 +306,9 @@ def track_stocks(bot):
         try:
             for stock in stocks_collection.find():
                 try:
-                    data = yf.download(stock["symbol"], period="1d", interval="1m", progress=False)
+                    data = yf.download(stock["symbol"], period="1d", interval="1m", progress=False, auto_adjust=True)
                     if data.empty: continue
-                    price = float(data["Close"].dropna().iloc[-1])
+                    price = data["Close"].dropna().iloc[-1].item()
 
                     # BUY
                     if stock.get("position", 0) == 0 and price >= stock["entry"]:
