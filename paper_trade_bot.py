@@ -82,6 +82,9 @@ def sentiment_icon(text):
 
 # === NEWS FETCHER ===
 def fetch_news(query):
+    if not NEWS_API_KEY:
+        return "❌ NEWS_API_KEY is missing."
+
     try:
         url = "https://newsapi.org/v2/top-headlines"
         params = {
@@ -92,9 +95,13 @@ def fetch_news(query):
             "apiKey": NEWS_API_KEY
         }
         response = requests.get(url, params=params).json()
+
+        if response.get("status") != "ok":
+            return f"❌ API Error: {response.get('message', 'Unknown error')}"
+
         articles = response.get("articles", [])[:5]
         if not articles:
-            return "📭 No relevant news found."
+            return f"📭 No relevant news found for '{query}'."
 
         message = f"📰 Top Business News for '{query}':\n\n"
         for art in articles:
@@ -103,8 +110,10 @@ def fetch_news(query):
             sentiment = sentiment_icon(title)
             message += f"{sentiment} {title}\n🔗 {url}\n\n"
         return message
+
     except Exception as e:
         return f"❌ Error fetching news: {e}"
+
 
 # === COMMAND HANDLERS ===
 def stock_news(update: Update, context: CallbackContext):
@@ -218,18 +227,22 @@ def reset_stocks(update: Update, context: CallbackContext):
 
 def portfolio(update: Update, context: CallbackContext):
     try:
-        if not stocks:
+        all_stocks = list(stocks_collection.find())
+        if not all_stocks:
             msg = "📉 Your portfolio is empty. Use /addstock to track a stock."
         else:
             lines = ["📊 Your Portfolio:"]
-            for stock in stocks:
-                status = "🟢 Holding" if stock["position"] > 0 else "🕒 Tracking"
+            for stock in all_stocks:
+                status = "🟢 Holding" if stock.get("position", 0) > 0 else "🕒 Tracking"
                 lines.append(f"{status} {stock['symbol']} | Entry: ₹{stock['entry']} | SL: ₹{stock['sl']} | Qty: {stock['qty']}")
             msg = "\n".join(lines)
     except Exception as e:
         msg = f"❌ Error displaying portfolio: {e}"
+
     sent = update.message.reply_text(msg)
     sent_messages.append(sent.message_id)
+
+
 def pnl_summary(update: Update, context: CallbackContext):
     try:
         logs = logs_collection.find()
@@ -264,45 +277,56 @@ def delete_old_messages(context):
 
 def track_stocks(bot):
     while True:
-        for stock in stocks:
-            try:
-                data = yf.download(stock["symbol"], period="1d", interval="1m", progress=False)
-                if data.empty: continue
-                price = float(data["Close"].dropna().iloc[-1])
+        try:
+            for stock in stocks_collection.find():
+                try:
+                    data = yf.download(stock["symbol"], period="1d", interval="1m", progress=False)
+                    if data.empty: continue
+                    price = float(data["Close"].dropna().iloc[-1])
 
-                # BUY
-                if stock["position"] == 0 and price >= stock["entry"]:
-                    cost = stock["qty"] * price
-                    if balance["value"] < cost:
-                        continue
-                    stock["entry_price"] = price
-                    stock["position"] = stock["qty"]
-                    balance["value"] -= cost
-                    balance_collection.update_one({}, {"$set": {"value": balance["value"]}}, upsert=True)  # ✅ Save to DB
+                    # BUY
+                    if stock.get("position", 0) == 0 and price >= stock["entry"]:
+                        cost = stock["qty"] * price
+                        if balance["value"] < cost:
+                            continue
 
-                    send_message(bot, f"🟢 BUY {stock['symbol']} Qty: {stock['qty']} @ ₹{price:.2f}\nRemaining: ₹{balance['value']:.2f}")
-                    trade_log(stock["symbol"], "BUY", price, stock["qty"], "", "ENTRY", balance["value"])
+                        new_values = {
+                            "entry_price": price,
+                            "position": stock["qty"]
+                        }
 
-                # SELL
-                elif stock["position"] > 0:
-                    sell_reason = None
-                    if price <= stock["sl"]:
-                        sell_reason = "STOP LOSS"
-                    elif stock["target"] and price >= stock["target"]:
-                        sell_reason = "TARGET"
+                        balance["value"] -= cost
+                        balance_collection.update_one({}, {"$set": {"value": balance["value"]}}, upsert=True)
+                        stocks_collection.update_one({"_id": stock["_id"]}, {"$set": new_values})
 
-                    if sell_reason:
-                        pnl = (price - stock["entry_price"]) * stock["qty"]
-                        balance["value"] += price * stock["qty"]
-                        balance_collection.update_one({}, {"$set": {"value": balance["value"]}}, upsert=True)  # ✅ Save to DB
+                        send_message(bot, f"🟢 BUY {stock['symbol']} Qty: {stock['qty']} @ ₹{price:.2f}\nRemaining: ₹{balance['value']:.2f}")
+                        trade_log(stock["symbol"], "BUY", price, stock["qty"], "", "ENTRY", balance["value"])
 
-                        stock["position"] = 0
-                        send_message(bot, f"🔴 SELL {stock['symbol']} ({sell_reason}) @ ₹{price:.2f} | P&L: ₹{pnl:.2f}")
-                        trade_log(stock["symbol"], "SELL", price, stock["qty"], pnl, sell_reason, balance["value"])
+                    # SELL
+                    elif stock.get("position", 0) > 0:
+                        sell_reason = None
+                        if price <= stock["sl"]:
+                            sell_reason = "STOP LOSS"
+                        elif stock.get("target") and price >= stock["target"]:
+                            sell_reason = "TARGET"
 
-            except Exception as e:
-                print(f"❌ Error in tracking {stock['symbol']}: {e}")
+                        if sell_reason:
+                            pnl = (price - stock["entry_price"]) * stock["qty"]
+                            balance["value"] += price * stock["qty"]
+                            balance_collection.update_one({}, {"$set": {"value": balance["value"]}}, upsert=True)
+
+                            stocks_collection.update_one({"_id": stock["_id"]}, {"$set": {"position": 0}})
+
+                            send_message(bot, f"🔴 SELL {stock['symbol']} ({sell_reason}) @ ₹{price:.2f} | P&L: ₹{pnl:.2f}")
+                            trade_log(stock["symbol"], "SELL", price, stock["qty"], pnl, sell_reason, balance["value"])
+                except Exception as e:
+                    print(f"❌ Error in {stock['symbol']}: {e}")
+
+        except Exception as e:
+            print(f"❌ Error in tracking loop: {e}")
+
         time.sleep(60)
+
 
 
 def main():
