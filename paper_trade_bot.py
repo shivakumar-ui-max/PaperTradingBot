@@ -11,7 +11,10 @@ from telegram.ext import Updater, CommandHandler, CallbackContext, ConversationH
 from telegram import Update
 from apscheduler.schedulers.background import BackgroundScheduler
 
-PORT = int(os.environ.get("PORT", 8000))
+from flask import Flask
+app = Flask(__name__)
+
+PORT = int(os.environ["PORT"])
 APP_URL = "https://papertradingbot.onrender.com"
 
 # === ENV CONFIG ===
@@ -292,6 +295,10 @@ def main():
     if last_balance:
         balance["value"] = float(last_balance["value"])
 
+    @app.route('/', methods=['GET'])
+    def health_check():
+     return "Bot is running", 200
+
     updater.start_webhook(
         listen="0.0.0.0",
         port=PORT,
@@ -299,6 +306,7 @@ def main():
         webhook_url=f"{APP_URL}/{TELEGRAM_BOT_TOKEN}"
     )
     updater.idle()
+
 
 if __name__ == '__main__':
     main()
