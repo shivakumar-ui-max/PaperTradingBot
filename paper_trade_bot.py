@@ -181,6 +181,8 @@ def daily_summary(update: Update, context: CallbackContext):
     lines, total_pnl = ["📅 **Daily P&L Summary:**\n"], 0
 
     for stock in all_stocks:
+        if stock.get("position", 0) == 0:
+            continue
         symbol = stock["symbol"]
         entry = stock.get("entry_price") or stock["entry"]
         qty = stock["qty"]
