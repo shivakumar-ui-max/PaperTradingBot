@@ -146,10 +146,18 @@ def add_stock_qty(update: Update, context: CallbackContext):
         temp_stock["entry_price"] = None
         temp_stock["position"] = 0
         stocks_collection.insert_one(temp_stock.copy())
+        investment = temp_stock['entry'] * temp_stock['qty']
+        target_text = temp_stock["target"] if temp_stock["target"] else "Not Set"
         msg = (
-            f"✅ Added {temp_stock['symbol']} | Entry: ₹{temp_stock['entry']} | SL: ₹{temp_stock['sl']} | Qty: {temp_stock['qty']}"
+            f"📌 Stock: {temp_stock['symbol']}\n"
+            f"🛒 Qty: {temp_stock['qty']}\n"
+            f"💸 Entry Price: ₹{temp_stock['entry']:.2f}\n"
+            f"🛑 Stop Loss: ₹{temp_stock['sl']:.2f}\n"
+            f"🎯 Target: {target_text}\n"
+            f"💰 Investment: ₹{investment:.2f}"
         )
         update.message.reply_text(msg)
+
         return ConversationHandler.END
     except:
         update.message.reply_text("❌ Invalid quantity.")
@@ -168,7 +176,13 @@ def portfolio(update: Update, context: CallbackContext):
     lines = ["📊 Portfolio:"]
     for stock in all_stocks:
         status = "🟢 Holding" if stock.get("position", 0) > 0 else "🕒 Tracking"
-        lines.append(f"{status} {stock['symbol']} | Entry: ₹{stock['entry']} | SL: ₹{stock['sl']} | Qty: {stock['qty']}")
+        investment = stock.get('invested', stock['qty'] * stock['entry'])
+        target_text = stock.get("target", "Not Set")
+
+        lines.append(
+            f"{status} {stock['symbol']} | Entry: ₹{stock['entry']} | SL: ₹{stock['sl']} | Qty: {stock['qty']} | Target: {target_text} | 💰 Invested: ₹{investment:.2f}"
+        )
+
     update.message.reply_text("\n".join(lines))
 
 def pnl_summary(update: Update, context: CallbackContext):
@@ -288,10 +302,17 @@ def track_stocks(bot):
                     if balance["value"] < cost:
                         continue
 
+                    invested_amount = stock["qty"] * price
+
                     stocks_collection.update_one(
                         {"_id": stock["_id"]},
-                        {"$set": {"entry_price": price, "position": stock["qty"]}}
+                        {"$set": {
+                            "entry_price": price,
+                            "position": stock["qty"],
+                            "invested": invested_amount
+                        }}
                     )
+
                     balance["value"] -= cost
                     balance_collection.update_one({}, {"$set": {"value": balance["value"]}}, upsert=True)
                     send_message(bot, f"🟢 BUY {stock['symbol']} Qty: {stock['qty']} @ ₹{price:.2f}")
