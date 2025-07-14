@@ -272,42 +272,58 @@ def delete_old_messages(context):
         except:
             pass
     sent_messages.clear()
-
+    
 def track_stocks(bot):
     while True:
         for stock in stocks_collection.find():
             try:
                 data = yf.download(stock["symbol"], period="1d", interval="1m", progress=False)
-                if data.empty: continue
+                if data.empty:
+                    continue
                 price = data["Close"].dropna().iloc[-1].item()
 
+                # Entry condition
                 if stock.get("position", 0) == 0 and price >= stock["entry"]:
                     cost = stock["qty"] * price
-                    if balance["value"] < cost: continue
+                    if balance["value"] < cost:
+                        continue
 
-                    stocks_collection.update_one({"_id": stock["_id"]}, {"$set": {"entry_price": price, "position": stock["qty"]}})
+                    stocks_collection.update_one(
+                        {"_id": stock["_id"]},
+                        {"$set": {"entry_price": price, "position": stock["qty"]}}
+                    )
                     balance["value"] -= cost
                     balance_collection.update_one({}, {"$set": {"value": balance["value"]}}, upsert=True)
                     send_message(bot, f"🟢 BUY {stock['symbol']} Qty: {stock['qty']} @ ₹{price:.2f}")
                     trade_log(stock["symbol"], "BUY", price, stock["qty"], "", "ENTRY", balance["value"])
 
+                # Stop-loss / Target condition (only if holding)
                 elif stock.get("position", 0) > 0:
+                    low = data["Low"].dropna().iloc[-1].item()
+                    high = data["High"].dropna().iloc[-1].item()
                     reason = None
-                    if price <= stock["sl"]:
+
+                    if low <= stock["sl"]:
                         reason = "STOP LOSS"
-                    elif stock.get("target") and price >= stock["target"]:
+                    elif stock.get("target") and high >= stock["target"]:
                         reason = "TARGET"
 
                     if reason:
                         pnl = (price - stock["entry_price"]) * stock["qty"]
                         balance["value"] += price * stock["qty"]
                         balance_collection.update_one({}, {"$set": {"value": balance["value"]}}, upsert=True)
-                        stocks_collection.update_one({"_id": stock["_id"]}, {"$set": {"pnl": pnl}})
+                        stocks_collection.update_one(
+                            {"_id": stock["_id"]},
+                            {"$set": {"pnl": pnl, "position": 0}}
+                        )
                         send_message(bot, f"🔴 SELL {stock['symbol']} ({reason}) @ ₹{price:.2f} | P&L: ₹{pnl:.2f}")
                         trade_log(stock["symbol"], "SELL", price, stock["qty"], pnl, reason, balance["value"])
+
             except:
                 continue
+
         time.sleep(60)
+
 
 def main():
     updater = Updater(token=TELEGRAM_BOT_TOKEN, use_context=True)
