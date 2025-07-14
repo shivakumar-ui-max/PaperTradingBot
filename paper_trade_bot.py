@@ -31,6 +31,9 @@ balance_collection = db["Balance"]
 
 # === STATES ===
 ASK_BALANCE, ADD_SYMBOL, ADD_ENTRY, ADD_SL, ADD_QTY, ADD_TARGET, PRICE_SYMBOL = range(7)
+SELL_SYMBOL, SELL_CONFIRM = range(7, 9)  # Extend states
+sell_temp = {}  # For temporary sell data
+
 
 # === DATA ===
 balance = {"value": 100000}
@@ -175,6 +178,7 @@ def pnl_summary(update: Update, context: CallbackContext):
     emoji = "✅" if total_pnl >= 0 else "❌"
     update.message.reply_text(f"{emoji} Total P&L: ₹{total_pnl:.2f}")
 
+
 def daily_summary(update: Update, context: CallbackContext):
     all_stocks = list(stocks_collection.find())
     if not all_stocks:
@@ -206,6 +210,60 @@ def daily_summary(update: Update, context: CallbackContext):
 
     lines.append(f"\n📊 **Total P&L: ₹{total_pnl:.2f}**")
     update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+def sell_start(update: Update, context: CallbackContext):
+    update.message.reply_text("📌 Enter stock symbol to sell (e.g., TCS.NS):")
+    return SELL_SYMBOL
+
+def sell_symbol(update: Update, context: CallbackContext):
+    symbol = update.message.text.upper()
+    stock = stocks_collection.find_one({"symbol": symbol})
+
+    if not stock or stock.get("position", 0) == 0:
+        update.message.reply_text(f"❌ You don't have holdings in {symbol}.")
+        return ConversationHandler.END
+
+    try:
+        data = yf.download(symbol, period="1d", interval="1m", progress=False)
+        price = data["Close"].dropna().iloc[-1].item()
+    except:
+        update.message.reply_text(f"❌ Error fetching price for {symbol}")
+        return ConversationHandler.END
+
+    qty = stock["position"]
+
+    sell_temp["symbol"] = symbol
+    sell_temp["price"] = price
+    sell_temp["qty"] = qty
+    sell_temp["entry"] = stock.get("entry_price") or stock["entry"]
+
+    update.message.reply_text(f"🔴 {symbol} Current Price: ₹{price:.2f}\nQty: {qty}\nDo you want to sell? (Yes/No)")
+    return SELL_CONFIRM
+
+def sell_confirm(update: Update, context: CallbackContext):
+    text = update.message.text.strip().lower()
+
+    if text != "yes":
+        update.message.reply_text("❌ Sell cancelled.")
+        return ConversationHandler.END
+
+    symbol = sell_temp["symbol"]
+    price = sell_temp["price"]
+    qty = sell_temp["qty"]
+    entry = sell_temp["entry"]
+
+    pnl = (price - entry) * qty
+
+    balance["value"] += price * qty
+    balance_collection.update_one({}, {"$set": {"value": balance["value"]}}, upsert=True)
+
+    stocks_collection.update_one({"symbol": symbol}, {"$set": {"position": 0, "pnl": pnl}})
+
+    trade_log(symbol, "SELL", price, qty, pnl, "MANUAL SELL", balance["value"])
+
+    update.message.reply_text(f"✅ SOLD {symbol} @ ₹{price:.2f} | Qty: {qty} | P&L: ₹{pnl:.2f}")
+    return ConversationHandler.END
+
 
 def delete_old_messages(context):
     for msg_id in sent_messages:
@@ -244,7 +302,7 @@ def track_stocks(bot):
                         pnl = (price - stock["entry_price"]) * stock["qty"]
                         balance["value"] += price * stock["qty"]
                         balance_collection.update_one({}, {"$set": {"value": balance["value"]}}, upsert=True)
-                        stocks_collection.update_one({"_id": stock["_id"]}, {"$set": {"position": 0}})
+                        stocks_collection.update_one({"_id": stock["_id"]}, {"$set": {"pnl": pnl}})
                         send_message(bot, f"🔴 SELL {stock['symbol']} ({reason}) @ ₹{price:.2f} | P&L: ₹{pnl:.2f}")
                         trade_log(stock["symbol"], "SELL", price, stock["qty"], pnl, reason, balance["value"])
             except:
@@ -260,6 +318,15 @@ def main():
     dp.add_handler(CommandHandler("portfolio", portfolio))
     dp.add_handler(CommandHandler("pnl", pnl_summary))
     dp.add_handler(CommandHandler("daily", daily_summary))
+
+    dp.add_handler(ConversationHandler(
+    entry_points=[CommandHandler("sell", sell_start)],
+    states={
+        SELL_SYMBOL: [MessageHandler(Filters.text & ~Filters.command, sell_symbol)],
+        SELL_CONFIRM: [MessageHandler(Filters.text & ~Filters.command, sell_confirm)],
+    },
+    fallbacks=[CommandHandler("cancel", cancel)]
+    ))
 
     dp.add_handler(ConversationHandler(
         entry_points=[CommandHandler("price", price_start)],
