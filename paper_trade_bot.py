@@ -267,7 +267,7 @@ def main():
     dp.add_handler(CommandHandler("reset", reset))
 
     conv_handler = ConversationHandler(
-        entry_points=[MessageHandler(Filters.regex("^2️⃣ Add / Modify Stock$"), add_stock_start)],
+        entry_points = [MessageHandler(Filters.regex("(?i)^(2️⃣ Add / Modify Stock|2|add|modify|add stock)$"),add_stock_start)],
         states={
             ADD_SYMBOL: [MessageHandler(Filters.text & ~Filters.command, add_stock_symbol)],
             ADD_ENTRY: [MessageHandler(Filters.text & ~Filters.command, add_stock_entry)],
@@ -282,10 +282,10 @@ def main():
     )
     dp.add_handler(conv_handler)
 
-    dp.add_handler(MessageHandler(Filters.regex("^1️⃣ Balance$"), view_balance))
-    dp.add_handler(MessageHandler(Filters.regex("^3️⃣ View Portfolio$"), portfolio))
-    dp.add_handler(MessageHandler(Filters.regex("^4️⃣ Delete Tracking Stock$"), delete_stock))
-    dp.add_handler(MessageHandler(Filters.regex("^5️⃣ P&L$"), pnl))
+    dp.add_handler(MessageHandler(Filters.regex("(?i)^(1️⃣ Balance|1|balance|balanc|blalance|bal)$"), view_balance))
+    dp.add_handler(MessageHandler(Filters.regex("(?i)^(3️⃣ View Portfolio|3|portfolio|view portfolio)$"), portfolio))
+    dp.add_handler(MessageHandler(Filters.regex("(?i)^(4️⃣ Delete Tracking Stock|4|delete|remove|delete stock)$"), delete_stock))
+    dp.add_handler(MessageHandler(Filters.regex("(?i)^(5️⃣ P&L|5|pnl|p&l)$"), pnl))
 
     threading.Thread(target=track, args=(updater.bot,), daemon=True).start()
 
