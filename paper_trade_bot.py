@@ -48,17 +48,31 @@ def send_message(context, text):
     except:
         pass
 
-def trade_log(symbol, action, price, qty, pnl, reason, bal):
-    logs_collection.insert_one({
-        "symbol": symbol,
-        "action": action,
-        "price": price,
-        "quantity": qty,
-        "pnl": pnl,
-        "reason": reason,
-        "balance_after": round(bal, 2),
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    })
+def trade_log(symbol, action, price, qty, pnl=None, reason=None, bal=None):
+    if action == "BUY":
+        logs_collection.insert_one({
+            "symbol": symbol,
+            "quantity": qty,
+            "buy_price": price,
+            "buy_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "sell_price": None,
+            "sell_time": None,
+            "pnl": None,
+            "reason": None,
+            "balance_after": None
+        })
+    elif action == "SELL":
+        logs_collection.update_one(
+            {"symbol": symbol, "sell_price": None},
+            {"$set": {
+                "sell_price": price,
+                "sell_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "pnl": pnl,
+                "reason": reason,
+                "balance_after": round(bal, 2)
+            }}
+        )
+
 
 # === COMMANDS ===
 def start(update: Update, context: CallbackContext):
@@ -186,22 +200,43 @@ def confirm_delete(update: Update, context: CallbackContext):
         stocks_collection.delete_one({"symbol": symbol})
         update.message.reply_text(f"✅ {symbol} removed from tracking.")
     return ConversationHandler.END
-
 def pnl(update: Update, context: CallbackContext):
     today = date.today().strftime("%Y-%m-%d")
+    today_display = date.today().strftime("%d-%B-%Y")
+
     daily_pnl = 0
     total_pnl = 0
-    for log in logs_collection.find({"action": "SELL"}):
+    trade_lines = []
+
+    for log in logs_collection.find({"sell_price": {"$ne": None}}):
         pnl_val = log.get("pnl", 0)
         total_pnl += pnl_val
-        if log["timestamp"].startswith(today):
+
+        if log["sell_time"].startswith(today):
+            qty = log["quantity"]
+            entry_price = log["buy_price"]
+            sell_price = log["sell_price"]
+
+            change_percent = ((sell_price - entry_price) / entry_price) * 100 if entry_price else 0
+            symbol = log["symbol"]
+            sign = "✅" if pnl_val >= 0 else "❌"
+
+            line = f"{sign} {symbol}: ₹{entry_price:.2f} → ₹{sell_price:.2f} | {change_percent:+.2f}% | Qty: {qty} | P&L: ₹{pnl_val:+.2f}"
+            trade_lines.append(line)
             daily_pnl += pnl_val
 
-    text = (
-        f"📅 *Today's P&L ({today}):* ₹{daily_pnl:.2f}\n"
-        f"📊 *Overall P&L:* ₹{total_pnl:.2f}"
-    )
-    update.message.reply_text(text, parse_mode="Markdown")
+    if trade_lines:
+        text = f"📅 {today_display} | Today's P&L:\n\n"
+        text += "\n".join(trade_lines)
+        text += f"\n\n📊 Total Today’s P&L: ₹{daily_pnl:+.2f}\n\n"
+    else:
+        text = f"📅 {today_display} | No trades today.\n\n"
+
+    text += f"📈 Overall Realized P&L (History): ₹{total_pnl:+.2f}"
+
+    update.message.reply_text(text)
+
+
 
 def reset(update: Update, context: CallbackContext):
     stocks_collection.delete_many({})
@@ -232,7 +267,8 @@ def track(bot):
                     }})
                     balance_collection.update_one({}, {"$set": {"value": balance["value"]}}, upsert=True)
                     send_message(bot, f"🟢 BUY {stock['symbol']} @ ₹{price:.2f}")
-                    trade_log(stock["symbol"], "BUY", price, stock["qty"], "", "AUTO BUY", balance["value"])
+                    trade_log(stock["symbol"], "BUY", price, stock["qty"])
+
 
                 elif stock.get("position", 0) > 0:
                     low = data["Low"].dropna().iloc[-1]
@@ -247,7 +283,7 @@ def track(bot):
                     if reason:
                         pnl = (price - stock["entry_price"]) * stock["qty"]
                         balance["value"] += price * stock["qty"]
-                        stocks_collection.update_one({"_id": stock["_id"]}, {"$set": {"position": 0}})
+                        stocks_collection.delete_one({"_id": stock["_id"]})
                         balance_collection.update_one({}, {"$set": {"value": balance["value"]}})
                         send_message(bot, f"🔴 SELL {stock['symbol']} ({reason}) @ ₹{price:.2f} | P&L: ₹{pnl:.2f}")
                         trade_log(stock["symbol"], "SELL", price, stock["qty"], pnl, reason, balance["value"])
