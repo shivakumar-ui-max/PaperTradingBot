@@ -79,19 +79,18 @@ def start(update: Update, context: CallbackContext):
     keyboard = [
         ["1️⃣ Balance", "2️⃣ Add / Modify Stock"],
         ["3️⃣ View Portfolio", "4️⃣ Delete Tracking Stock"],
-        ["5️⃣ P&L"]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     text = (
         "📈 *Welcome to Paper Trade Bot*\n\n"
-        "Choose an option:\n\n"
-        "1️⃣ Balance\n_View current balance_\n\n"
-        "2️⃣ Add / Modify Stock\n_Add new stock or modify SL/Target_\n\n"
-        "3️⃣ View Portfolio\n_Show tracked stocks & invested amount_\n\n"
-        "4️⃣ Delete Tracking Stock\n_Remove stock (only if not holding)_\n\n"
-        "5️⃣ P&L\n_Show today's and overall P&L_\n\n"
-        "Type `/help` to view all commands."
+        "Select an action:\n\n"
+        "1️⃣ *Balance* - View current balance\n"
+        "2️⃣ *Add / Modify Stock* - Add new stock or update SL/Target\n"
+        "3️⃣ *View Portfolio* - Show tracked stocks, holdings, and P&L\n"
+        "4️⃣ *Delete Stock* - Remove stock from tracking (only if not holding)\n\n"
+        "Type `/help` for command list."
     )
+
     update.message.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
 
 def help_cmd(update: Update, context: CallbackContext):
@@ -345,7 +344,6 @@ def main():
     dp.add_handler(MessageHandler(Filters.regex("(?i)^(1️⃣ Balance|1|balance|balanc|blalance|bal)$"), view_balance))
     dp.add_handler(MessageHandler(Filters.regex("(?i)^(3️⃣ View Portfolio|3|portfolio|view portfolio)$"), portfolio))
     dp.add_handler(MessageHandler(Filters.regex("(?i)^(4️⃣ Delete Tracking Stock|4|delete|remove|delete stock)$"), delete_stock))
-    dp.add_handler(MessageHandler(Filters.regex("(?i)^(5️⃣ P&L|5|pnl|p&l)$"), pnl))
 
     threading.Thread(target=track, args=(updater.bot,), daemon=True).start()
 
