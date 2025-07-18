@@ -178,62 +178,76 @@ def confirm_delete(update: Update, context: CallbackContext):
         stocks_collection.delete_one({"symbol": symbol, "user_id": uid})
         update.message.reply_text(f"✅ {symbol} removed from tracking.")
     return ConversationHandler.END
-
 def portfolio(update: Update, context: CallbackContext):
-    if check_in_progress(update):
-        return
-
-    uid = update.effective_user.id
-    stocks = list(stocks_collection.find({"user_id": uid}))
-    logs = list(logs_collection.find({"user_id": uid}))
+    stocks = list(stocks_collection.find())
+    logs = list(logs_collection.find({"sell_price": {"$ne": None}}))
 
     today = date.today().strftime("%Y-%m-%d")
-    today_disp = date.today().strftime("%d-%B-%Y")
-    lines = [f"📊 Portfolio: 📅 {today_disp}\n"]
+    today_display = date.today().strftime("%d-%B-%Y")
 
-    holding = []
-    sold = []
+    lines = [f"📊 Portfolio:  📅 {today_display}\n"]
+
+    # HOLDINGS
+    holding_lines = []
+    for s in stocks:
+        if s.get("position", 0) > 0:
+            symbol = s['symbol']
+            qty = s['qty']
+            sl = s['sl']
+            target = s.get('target', 'None')
+            invested = s.get("invested", 0)
+
+            data = yf.download(symbol, period="1d", interval="1m", progress=False)
+            current_price = data["Close"].dropna().iloc[-1] if not data.empty else s["entry"]
+
+            entry_price = s.get("entry_price", s["entry"])
+            percent = ((current_price - entry_price) / entry_price) * 100
+            status = "🟢" if percent >= 0 else "❌"
+
+            holding_lines.append(
+                f"{status} Holding {symbol} | Entry: ₹{entry_price:.2f} | Now: ₹{current_price:.2f} | {percent:+.2f}% | Qty: {qty} | SL: {sl} | Target: {target} | Invested: ₹{invested:.2f}"
+            )
+
+    if holding_lines:
+        lines.append("HOLDING\n")
+        lines.extend(holding_lines)
+
+    # SOLD STOCKS
+    sold_lines = []
     today_pnl = 0
     total_pnl = 0
 
-    for s in stocks:
-        if s.get("position", 0) > 0:
-            symbol = s["symbol"]
-            qty = s["qty"]
-            sl = s["sl"]
-            target = s.get("target", "None")
-            entry = s.get("entry_price", s["entry"])
-            invested = s.get("invested", entry * qty)
-
-            data = yf.download(symbol, period="1d", interval="1m", progress=False)
-            now = data["Close"].dropna().iloc[-1] if not data.empty else entry
-
-            change = ((now - entry) / entry) * 100
-            status = "🟢" if change >= 0 else "❌"
-            holding.append(
-                f"{status} {symbol} | Entry: ₹{entry:.2f} | Now: ₹{now:.2f} | {change:+.2f}% | Qty: {qty} | SL: {sl} | Target: {target} | Invested: ₹{invested:.2f}"
-            )
-
     for log in logs:
-        if log.get("sell_price"):
-            pnl = log["pnl"]
-            total_pnl += pnl
-            if log["sell_time"].startswith(today):
-                today_pnl += pnl
-            sold.append(
-                f"🔴 {log['symbol']} | {log['reason']} | ₹{log['buy_price']:.2f} → ₹{log['sell_price']:.2f} | Qty: {log['quantity']} | P&L: ₹{pnl:+.2f} | {log['sell_time'].split()[1]}"
-            )
+        pnl = log['pnl']
+        total_pnl += pnl
 
-    if holding:
-        lines.append("HOLDING:\n" + "\n".join(holding))
-    if sold:
-        lines.append("\nSOLD:\n" + "\n".join(sold))
+        if log["sell_time"].startswith(today):
+            today_pnl += pnl
 
-    lines.append(f"\nToday P&L: ₹{today_pnl:+.2f}")
-    lines.append("\n------------------------------------------------")
-    lines.append(f"📈 Overall Realized P&L: ₹{total_pnl:+.2f}")
+        symbol = log['symbol']
+        qty = log['quantity']
+        buy = log['buy_price']
+        sell = log['sell_price']
+        reason = log['reason']
+        time_sold = log['sell_time'].split()[1]
+
+        sold_lines.append(
+            f"🔴 {symbol} | {reason} | ₹{buy:.2f} → ₹{sell:.2f} | Qty: {qty} | P&L: ₹{pnl:+.2f} | {time_sold}"
+        )
+
+    if sold_lines:
+        lines.append("\nSOLD:\n")
+        lines.extend(sold_lines)
+
+    # TODAY P&L
+    lines.append(f"\nTODAY {today_display} P&L: ₹{today_pnl:+.2f}")
+
+    # OVERALL P&L (Always show this)
+    lines.append("\n--------------------------------------------------------\n")
+    lines.append(f"📈 Overall Realized P&L (History): ₹{total_pnl:+.2f}")
 
     update.message.reply_text("\n".join(lines))
+
 
 # Tracking Thread
 def track(bot):
