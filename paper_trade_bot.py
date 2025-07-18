@@ -173,17 +173,78 @@ def add_stock_qty(update: Update, context: CallbackContext):
 # DELETE STOCKS
 def portfolio(update: Update, context: CallbackContext):
     stocks = list(stocks_collection.find())
-    if not stocks:
-        update.message.reply_text("📉 Portfolio is empty.")
-        return
+    logs = list(logs_collection.find({"sell_price": {"$ne": None}}))
 
-    lines = ["📊 Portfolio:"]
+    today = date.today().strftime("%Y-%m-%d")
+    today_display = date.today().strftime("%d-%B-%Y")
+
+    lines = [f"📊 Portfolio:  📅 {today_display}\n"]
+
+    # HOLDINGS
+    holding_lines = []
     for s in stocks:
-        status = "🟢 Holding" if s.get("position", 0) > 0 else "🕒 Tracking"
-        invest = s.get("invested", 0)
-        lines.append(f"{status} {s['symbol']} | SL: {s['sl']} | Target: {s.get('target', 'Not Set')} | Qty: {s['qty']} | Invested: ₹{invest:.2f}")
+        if s.get("position", 0) > 0:
+            symbol = s['symbol']
+            qty = s['qty']
+            sl = s['sl']
+            target = s.get('target', 'None')
+            invested = s.get("invested", 0)
+
+            data = yf.download(symbol, period="1d", interval="1m", progress=False)
+            current_price = data["Close"].dropna().iloc[-1] if not data.empty else s["entry"]
+
+            entry_price = s.get("entry_price", s["entry"])
+            percent = ((current_price - entry_price) / entry_price) * 100
+            status = "🟢" if percent >= 0 else "❌"
+
+            holding_lines.append(
+                f"{status} Holding {symbol} | Entry: ₹{entry_price:.2f} | Now: ₹{current_price:.2f} | {percent:+.2f}% | Qty: {qty} | SL: {sl} | Target: {target} | Invested: ₹{invested:.2f}"
+            )
+
+    if holding_lines:
+        lines.append("HOLDING\n")
+        lines.extend(holding_lines)
+
+    # SOLD STOCKS
+    sold_lines = []
+    today_pnl = 0
+    total_pnl = 0
+
+    for log in logs:
+        symbol = log['symbol']
+        qty = log['quantity']
+        buy = log['buy_price']
+        sell = log['sell_price']
+        pnl = log['pnl']
+        reason = log['reason']
+        time_sold = log['sell_time'].split()[1]
+
+        total_pnl += pnl
+        if log["sell_time"].startswith(today):
+            today_pnl += pnl
+
+        sold_lines.append(
+            f"🔴 {symbol} | {reason} | ₹{buy:.2f} → ₹{sell:.2f} | Qty: {qty} | P&L: ₹{pnl:+.2f} | {time_sold}"
+        )
+
+    if sold_lines:
+        lines.append("\nSOLD:\n")
+        lines.extend(sold_lines)
+
+    # TODAY P&L
+    lines.append(f"\nTODAY {today_display} P&L: ₹{today_pnl:+.2f}")
+
+    # HISTORY P&L
+    lines.append("\n--------------------------------------------------------\n")
+    lines.append(f"📈 Overall Realized P&L (History): ₹{total_pnl:+.2f}")
 
     update.message.reply_text("\n".join(lines))
+
+
+def cancel(update: Update, context: CallbackContext):
+    temp_stock.clear()  # <-- Clear previous temp data
+    update.message.reply_text("❌ Operation cancelled.")
+    return ConversationHandler.END
 
 def delete_stock(update: Update, context: CallbackContext):
     update.message.reply_text("🗑️ Enter stock symbol to delete:")
@@ -200,42 +261,6 @@ def confirm_delete(update: Update, context: CallbackContext):
         stocks_collection.delete_one({"symbol": symbol})
         update.message.reply_text(f"✅ {symbol} removed from tracking.")
     return ConversationHandler.END
-def pnl(update: Update, context: CallbackContext):
-    today = date.today().strftime("%Y-%m-%d")
-    today_display = date.today().strftime("%d-%B-%Y")
-
-    daily_pnl = 0
-    total_pnl = 0
-    trade_lines = []
-
-    for log in logs_collection.find({"sell_price": {"$ne": None}}):
-        pnl_val = log.get("pnl", 0)
-        total_pnl += pnl_val
-
-        if log["sell_time"].startswith(today):
-            qty = log["quantity"]
-            entry_price = log["buy_price"]
-            sell_price = log["sell_price"]
-
-            change_percent = ((sell_price - entry_price) / entry_price) * 100 if entry_price else 0
-            symbol = log["symbol"]
-            sign = "✅" if pnl_val >= 0 else "❌"
-
-            line = f"{sign} {symbol}: ₹{entry_price:.2f} → ₹{sell_price:.2f} | {change_percent:+.2f}% | Qty: {qty} | P&L: ₹{pnl_val:+.2f}"
-            trade_lines.append(line)
-            daily_pnl += pnl_val
-
-    if trade_lines:
-        text = f"📅 {today_display} | Today's P&L:\n\n"
-        text += "\n".join(trade_lines)
-        text += f"\n\n📊 Total Today’s P&L: ₹{daily_pnl:+.2f}\n\n"
-    else:
-        text = f"📅 {today_display} | No trades today.\n\n"
-
-    text += f"📈 Overall Realized P&L (History): ₹{total_pnl:+.2f}"
-
-    update.message.reply_text(text)
-
 
 
 def reset(update: Update, context: CallbackContext):
@@ -299,7 +324,6 @@ def main():
 
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("help", help_cmd))
-    dp.add_handler(CommandHandler("pnl", pnl))
     dp.add_handler(CommandHandler("reset", reset))
 
     conv_handler = ConversationHandler(
@@ -314,7 +338,7 @@ def main():
             SET_BALANCE: [MessageHandler(Filters.text & ~Filters.command, receive_balance)]
 
         },
-        fallbacks=[CommandHandler("cancel", lambda u, c: u.message.reply_text("Cancelled."))]
+        fallbacks=[CommandHandler("cancel", cancel)]
     )
     dp.add_handler(conv_handler)
 
