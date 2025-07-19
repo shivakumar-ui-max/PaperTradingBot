@@ -198,11 +198,14 @@ def portfolio(update: Update, context: CallbackContext):
             invested = s.get("invested", 0)
 
             data = yf.download(symbol, period="1d", interval="1m", progress=False)
-            current_price = data["Close"].dropna().iloc[-1] if not data.empty else s["entry"]
+            if not data.empty and "Close" in data.columns and not data["Close"].dropna().empty:
+                current_price = float(data["Close"].dropna().iloc[-1])
+            else:
+                current_price = s.get("entry_price", s["entry"])
 
             entry_price = s.get("entry_price", s["entry"])
             percent = ((current_price - entry_price) / entry_price) * 100
-            status = "🟢" if percent >= 0 else "❌"
+            status = "🟢" if float(percent) >= 0 else "❌"
 
             holding_lines.append(
                 f"{status} Holding {symbol} | Entry: ₹{entry_price:.2f} | Now: ₹{current_price:.2f} | {percent:+.2f}% | Qty: {qty} | SL: {sl} | Target: {target} | Invested: ₹{invested:.2f}"
@@ -242,7 +245,7 @@ def portfolio(update: Update, context: CallbackContext):
     # TODAY P&L
     lines.append(f"\nTODAY {today_display} P&L: ₹{today_pnl:+.2f}")
 
-    # OVERALL P&L (Always show this)
+    # OVERALL P&L
     lines.append("\n--------------------------------------------------------\n")
     lines.append(f"📈 Overall Realized P&L (History): ₹{total_pnl:+.2f}")
 
