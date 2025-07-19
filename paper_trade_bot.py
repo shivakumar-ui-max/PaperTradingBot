@@ -110,9 +110,22 @@ def add_stock_start(update: Update, context: CallbackContext):
 
 def add_stock_symbol(update: Update, context: CallbackContext):
     uid = update.effective_user.id
-    temp_stock[uid]["symbol"] = update.message.text.upper()
+    symbol = update.message.text.upper()
+
+    # Validate symbol using yfinance
+    try:
+        data = yf.download(symbol, period="1d", interval="1m", progress=False)
+        if data.empty or "Close" not in data.columns:
+            update.message.reply_text("❌ Invalid or Unlisted Stock Symbol. Please enter a valid NSE/BSE symbol like TCS.NS or INFY.NS.")
+            return ADD_SYMBOL
+    except Exception as e:
+        update.message.reply_text(f"❌ Error fetching data: {e}")
+        return ADD_SYMBOL
+
+    temp_stock[uid]["symbol"] = symbol
     update.message.reply_text("✏️ Entry Price:")
     return ADD_ENTRY
+
 
 def add_stock_entry(update: Update, context: CallbackContext):
     uid = update.effective_user.id
