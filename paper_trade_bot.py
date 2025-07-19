@@ -201,49 +201,58 @@ def portfolio(update: Update, context: CallbackContext):
 
     lines = [f"📊 Portfolio: 📅 {today_display}\n"]
 
-    # HOLDING
-    holding_lines = []
+    # TRACKING
     tracking_lines = []
-
     for s in stocks:
-        symbol = s['symbol']
-        qty = s['qty']
-        sl = s['sl']
-        target = s.get('target', 'None')
-        invested = s.get("invested", 0)
-        entry_price = s.get("entry_price", s["entry"])
+        if s.get("position", 0) == 0:
+            symbol = s['symbol']
+            qty = s['qty']
+            sl = s['sl']
+            target = s.get('target', 'None')
 
-        data = yf.download(symbol, period="1d", interval="1m", progress=False)
-        if not data.empty and "Close" in data.columns and not data["Close"].dropna().empty:
-            current_price = float(data["Close"].dropna().iloc[-1])
-        else:
-            current_price = entry_price
+            try:
+                data = yf.download(symbol, period="1d", interval="1m", progress=False)
+                current_price = float(data["Close"].dropna().iloc[-1]) if not data.empty else s.get("entry", 0)
+            except:
+                current_price = s.get("entry", 0)
 
-        if s.get("position", 0) > 0:
-            percent = ((current_price - entry_price) / entry_price) * 100
-            status = "🟢" if percent >= 0 else "❌"
-            buy_time = logs_collection.find_one({
-                "symbol": symbol, "user_id": uid, "sell_price": None
-            })
-            buy_date = buy_time["buy_time"] if buy_time else "N/A"
-
-            holding_lines.append(
-                f"{status} {symbol} | Entry: ₹{entry_price:.2f} | Now: ₹{current_price:.2f} | {percent:+.2f}% | Qty: {qty} | SL: {sl} | Target: {target} | Invested: ₹{invested:.2f} | Bought: {buy_date}"
-            )
-        else:
             tracking_lines.append(
                 f"📍 {symbol} | Entry: ₹{s['entry']:.2f} | Current: ₹{current_price:.2f} | Qty: {qty} | SL: {sl} | Target: {target}"
             )
 
-    if holding_lines:
-        lines.append("HOLDING:\n")
-        lines.extend(holding_lines)
-
     if tracking_lines:
-        lines.append("\nTRACKING:\n")
+        lines.append("TRACKING:\n")
         lines.extend(tracking_lines)
 
-    # SOLD STOCKS
+    # HOLDING
+    holding_lines = []
+    for s in stocks:
+        if s.get("position", 0) > 0:
+            symbol = s['symbol']
+            qty = s['qty']
+            sl = s['sl']
+            target = s.get('target', 'None')
+            invested = s.get("invested", 0)
+
+            try:
+                data = yf.download(symbol, period="1d", interval="1m", progress=False)
+                current_price = float(data["Close"].dropna().iloc[-1]) if not data.empty else s.get("entry_price", s["entry"])
+            except:
+                current_price = s.get("entry_price", s["entry"])
+
+            entry_price = s.get("entry_price", s["entry"])
+            percent = ((current_price - entry_price) / entry_price) * 100
+            status = "🟢" if percent >= 0 else "❌"
+
+            holding_lines.append(
+                f"{status} {symbol} | Entry: ₹{entry_price:.2f} | Now: ₹{current_price:.2f} | {percent:+.2f}% | Qty: {qty} | SL: {sl} | Target: {target} | Invested: ₹{invested:.2f}"
+            )
+
+    if holding_lines:
+        lines.append("\nHOLDING:\n")
+        lines.extend(holding_lines)
+
+    # SOLD
     sold_lines = []
     today_pnl = 0
     total_pnl = 0
@@ -252,7 +261,10 @@ def portfolio(update: Update, context: CallbackContext):
         pnl = log['pnl']
         total_pnl += pnl
 
-        if log["sell_time"].startswith(today):
+        sell_date = log['sell_time'].split()[0]
+        sell_time = log['sell_time'].split()[1]
+
+        if sell_date == today:
             today_pnl += pnl
 
         symbol = log['symbol']
@@ -260,22 +272,19 @@ def portfolio(update: Update, context: CallbackContext):
         buy = log['buy_price']
         sell = log['sell_price']
         reason = log['reason']
-        sell_time = log['sell_time']
 
         sold_lines.append(
-            f"🔴 {symbol} | {reason} | ₹{buy:.2f} → ₹{sell:.2f} | Qty: {qty} | P&L: ₹{pnl:+.2f} | Sold: {sell_time}"
+            f"🔴 {symbol} | {reason} | ₹{buy:.2f} → ₹{sell:.2f} | Qty: {qty} | P&L: ₹{pnl:+.2f} | {sell_time} | Date: {sell_date}"
         )
 
     if sold_lines:
         lines.append("\nSOLD:\n")
         lines.extend(sold_lines)
 
-    # TODAY P&L
-    lines.append(f"\nTODAY {today_display} P&L: ₹{today_pnl:+.2f}")
-
-    # OVERALL P&L
+    # P&L Summary
     lines.append("\n--------------------------------------------------------\n")
-    lines.append(f"📈 Overall Realized P&L (History): ₹{total_pnl:+.2f}")
+    lines.append(f"TODAY {today_display} P&L: ₹{today_pnl:+.2f}")
+    lines.append(f"\n📈 Overall Realized P&L (History): ₹{total_pnl:+.2f}")
 
     update.message.reply_text("\n".join(lines))
 
