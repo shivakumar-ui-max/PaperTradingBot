@@ -179,41 +179,56 @@ def confirm_delete(update: Update, context: CallbackContext):
         update.message.reply_text(f"✅ {symbol} removed from tracking.")
     return ConversationHandler.END
 def portfolio(update: Update, context: CallbackContext):
-    stocks = list(stocks_collection.find())
-    logs = list(logs_collection.find({"sell_price": {"$ne": None}}))
+    uid = update.effective_user.id
+    stocks = list(stocks_collection.find({"user_id": uid}))
+    logs = list(logs_collection.find({"user_id": uid, "sell_price": {"$ne": None}}))
 
     today = date.today().strftime("%Y-%m-%d")
     today_display = date.today().strftime("%d-%B-%Y")
 
-    lines = [f"📊 Portfolio:  📅 {today_display}\n"]
+    lines = [f"📊 Portfolio: 📅 {today_display}\n"]
 
-    # HOLDINGS
+    # HOLDING
     holding_lines = []
+    tracking_lines = []
+
     for s in stocks:
+        symbol = s['symbol']
+        qty = s['qty']
+        sl = s['sl']
+        target = s.get('target', 'None')
+        invested = s.get("invested", 0)
+        entry_price = s.get("entry_price", s["entry"])
+
+        data = yf.download(symbol, period="1d", interval="1m", progress=False)
+        if not data.empty and "Close" in data.columns and not data["Close"].dropna().empty:
+            current_price = float(data["Close"].dropna().iloc[-1])
+        else:
+            current_price = entry_price
+
         if s.get("position", 0) > 0:
-            symbol = s['symbol']
-            qty = s['qty']
-            sl = s['sl']
-            target = s.get('target', 'None')
-            invested = s.get("invested", 0)
-
-            data = yf.download(symbol, period="1d", interval="1m", progress=False)
-            if not data.empty and "Close" in data.columns and not data["Close"].dropna().empty:
-                current_price = float(data["Close"].dropna().iloc[-1])
-            else:
-                current_price = s.get("entry_price", s["entry"])
-
-            entry_price = s.get("entry_price", s["entry"])
             percent = ((current_price - entry_price) / entry_price) * 100
-            status = "🟢" if float(percent) >= 0 else "❌"
+            status = "🟢" if percent >= 0 else "❌"
+            buy_time = logs_collection.find_one({
+                "symbol": symbol, "user_id": uid, "sell_price": None
+            })
+            buy_date = buy_time["buy_time"] if buy_time else "N/A"
 
             holding_lines.append(
-                f"{status} Holding {symbol} | Entry: ₹{entry_price:.2f} | Now: ₹{current_price:.2f} | {percent:+.2f}% | Qty: {qty} | SL: {sl} | Target: {target} | Invested: ₹{invested:.2f}"
+                f"{status} {symbol} | Entry: ₹{entry_price:.2f} | Now: ₹{current_price:.2f} | {percent:+.2f}% | Qty: {qty} | SL: {sl} | Target: {target} | Invested: ₹{invested:.2f} | Bought: {buy_date}"
+            )
+        else:
+            tracking_lines.append(
+                f"📍 {symbol} | Entry: ₹{s['entry']:.2f} | Current: ₹{current_price:.2f} | Qty: {qty} | SL: {sl} | Target: {target}"
             )
 
     if holding_lines:
-        lines.append("HOLDING\n")
+        lines.append("HOLDING:\n")
         lines.extend(holding_lines)
+
+    if tracking_lines:
+        lines.append("\nTRACKING:\n")
+        lines.extend(tracking_lines)
 
     # SOLD STOCKS
     sold_lines = []
@@ -232,10 +247,10 @@ def portfolio(update: Update, context: CallbackContext):
         buy = log['buy_price']
         sell = log['sell_price']
         reason = log['reason']
-        time_sold = log['sell_time'].split()[1]
+        sell_time = log['sell_time']
 
         sold_lines.append(
-            f"🔴 {symbol} | {reason} | ₹{buy:.2f} → ₹{sell:.2f} | Qty: {qty} | P&L: ₹{pnl:+.2f} | {time_sold}"
+            f"🔴 {symbol} | {reason} | ₹{buy:.2f} → ₹{sell:.2f} | Qty: {qty} | P&L: ₹{pnl:+.2f} | Sold: {sell_time}"
         )
 
     if sold_lines:
@@ -250,6 +265,7 @@ def portfolio(update: Update, context: CallbackContext):
     lines.append(f"📈 Overall Realized P&L (History): ₹{total_pnl:+.2f}")
 
     update.message.reply_text("\n".join(lines))
+
 
 
 # Tracking Thread
