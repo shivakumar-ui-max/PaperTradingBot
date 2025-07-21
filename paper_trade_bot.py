@@ -137,6 +137,11 @@ def add_stock_qty(update: Update, context: CallbackContext):
     update.message.reply_text(f"✅ {stock['symbol']} added to tracking")
     return ConversationHandler.END
 
+def cancel(update: Update, context: CallbackContext):
+    update.message.reply_text("❌ Your current operation has been canceled.")
+    return ConversationHandler.END
+
+
 # Delete Stock
 def delete_stock(update: Update, context: CallbackContext):
     update.message.reply_text("🗑️ Enter stock symbol to delete:")
@@ -150,57 +155,48 @@ def confirm_delete(update: Update, context: CallbackContext):
     return ConversationHandler.END
 
 # Portfolio
-def portfolio(update: Update, context: CallbackContext):
-    uid = update.effective_user.id
+from datetime import datetime
+def portfolio(update, context):
+    uid = str(update.effective_chat.id)
     stocks = list(stocks_collection.find({"user_id": uid}))
     logs = list(logs_collection.find({"user_id": uid}))
 
-    today_date = date.today().strftime("%Y-%m-%d")
-    today_display = date.today().strftime("%d-%B-%Y")
+    lines = []
+    lines.append(f"📊 Portfolio: 📅 {datetime.now().strftime('%d-%B-%Y')}\n")
 
-    lines = [f"📊 Portfolio: 📅 {today_display}\n"]
-
-    tracking = []
-    holding = []
-    sold = []
-    today_pnl = 0
-    total_pnl = 0
-
-    for s in stocks:
-        ltp = get_ltp(s['symbol']) or s['entry']
-        if s.get("position", 0) == 0:
-            tracking.append(f"📍 {s['symbol']} | Entry: ₹{s['entry']} | LTP: ₹{ltp} | Qty: {s['qty']}")
-        else:
-            pnl = (ltp - s['entry_price']) * s['qty']
-            holding.append(f"🟢 {s['symbol']} | Entry: ₹{s['entry_price']} | Now: ₹{ltp} | Qty: {s['qty']} | P&L: ₹{pnl:+.2f}")
-
-    for log in logs:
-        if log.get("sell_price"):
-            buy = log["buy_price"]
-            sell = log["sell_price"]
-            qty = log["qty"]
-            pnl = log["pnl"]
-            time_sold = log.get("sell_time", "")
-            total_pnl += pnl
-            if time_sold.startswith(today_date):
-                today_pnl += pnl
-            sold.append(f"🔴 {log['symbol']} | ₹{buy} → ₹{sell} | Qty: {qty} | P&L: ₹{pnl:+.2f} | {time_sold}")
-
+    # TRACKING STOCKS
+    tracking = [s for s in stocks if not s.get("in_position")]
     if tracking:
-        lines.append("\nTRACKING:")
-        lines.extend(tracking)
-    if holding:
-        lines.append("\nHOLDING:")
-        lines.extend(holding)
-    if sold:
-        lines.append("\nSOLD:")
-        lines.extend(sold)
+        lines.append("TRACKING:")
+        for s in tracking:
+            ltp = s.get('ltp', s['entry'])  # Use last updated LTP or fallback
+            lines.append(f"📍 {s['symbol']} | Entry: ₹{s['entry']} | LTP: ₹{ltp} | Qty: {s['qty']}")
+        lines.append("\n")
 
-    lines.append(f"\nTODAY P&L: ₹{today_pnl:+.2f}")
-    lines.append("\n--------------------------------------------------------")
+    # HOLDING STOCKS
+    holding = [s for s in stocks if s.get("in_position")]
+    if holding:
+        lines.append("HOLDING:")
+        for s in holding:
+            ltp = s.get('ltp', s['entry'])
+            pnl = (ltp - s['entry']) * s['qty']
+            status = "🟢" if pnl >= 0 else "🔴"
+            lines.append(f"{status} {s['symbol']} | Entry: ₹{s['entry']} | Now: ₹{ltp} | Qty: {s['qty']} | P&L: ₹{pnl:+.2f}")
+        lines.append("\n")
+
+    # TODAY P&L
+    today = datetime.now().strftime("%Y-%m-%d")
+    today_logs = [l for l in logs if l.get("sell_time", "").startswith(today)]
+    today_pnl = sum(l["pnl"] for l in today_logs if l.get("sell_price"))
+    lines.append(f"TODAY P&L: ₹{today_pnl:+.2f}")
+    lines.append("\n" + "-"*56)
+
+    # OVERALL HISTORY P&L
+    total_pnl = sum(l["pnl"] for l in logs if l.get("sell_price"))
     lines.append(f"📈 Overall Realized P&L (History): ₹{total_pnl:+.2f}")
 
     update.message.reply_text("\n".join(lines))
+
 
 # Tracking Thread
 def track(bot):
@@ -240,6 +236,7 @@ def main():
     updater = Updater(TELEGRAM_BOT_TOKEN, use_context=True)
     dp = updater.dispatcher
 
+    # Conversation handler for Add / Modify Stock
     conv_handler = ConversationHandler(
         entry_points=[MessageHandler(Filters.regex("(?i)^2|add|modify"), add_stock_start)],
         states={
@@ -251,9 +248,10 @@ def main():
             ASK_BALANCE: [MessageHandler(Filters.text & ~Filters.command, receive_balance)],
             DELETE_TRACK: [MessageHandler(Filters.text & ~Filters.command, confirm_delete)]
         },
-        fallbacks=[CommandHandler("cancel", lambda update, context: ConversationHandler.END)]
+        fallbacks=[CommandHandler("cancel", cancel)]
     )
 
+    # Register handlers
     dp.add_handler(conv_handler)
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("help", help_cmd))
@@ -262,19 +260,25 @@ def main():
     dp.add_handler(MessageHandler(Filters.regex("(?i)^3|portfolio"), portfolio))
     dp.add_handler(MessageHandler(Filters.regex("(?i)^4|delete"), delete_stock))
 
+    # Start background threads
     threading.Thread(target=track, args=(updater.bot,), daemon=True).start()
+    threading.Thread(target=background_ltp_updater, daemon=True).start()
 
+    # Flask route
     @app.route("/", methods=["GET"])
     def home():
         return "Bot is Running", 200
 
+    # Start webhook
     updater.start_webhook(
         listen="0.0.0.0",
         port=PORT,
         url_path=TELEGRAM_BOT_TOKEN,
         webhook_url=f"{APP_URL}/{TELEGRAM_BOT_TOKEN}"
     )
+
     updater.idle()
+
 
 if __name__ == "__main__":
     main()
