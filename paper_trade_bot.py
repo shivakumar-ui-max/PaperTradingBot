@@ -230,6 +230,22 @@ def track(bot):
                 print(e)
         time.sleep(60)
 
+def background_ltp_updater():
+    while True:
+        stocks = list(stocks_collection.find())
+        for stock in stocks:
+            try:
+                ltp = get_ltp(stock["symbol"])
+                if ltp:
+                    stocks_collection.update_one(
+                        {"_id": stock["_id"]},
+                        {"$set": {"ltp": ltp}}
+                    )
+            except Exception as e:
+                print(f"LTP update error for {stock['symbol']}: {e}")
+        time.sleep(60)  # Run every 60 seconds
+
+
 # Main
 
 def main():
