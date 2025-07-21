@@ -165,7 +165,7 @@ def portfolio(update, context):
     lines.append(f"📊 Portfolio: 📅 {datetime.now().strftime('%d-%B-%Y')}\n")
 
     # TRACKING STOCKS
-    tracking = [s for s in stocks if not s.get("in_position")]
+    tracking = [s for s in stocks if s.get("position", 0) == 0]
     if tracking:
         lines.append("TRACKING:")
         for s in tracking:
@@ -174,7 +174,7 @@ def portfolio(update, context):
         lines.append("\n")
 
     # HOLDING STOCKS
-    holding = [s for s in stocks if s.get("in_position")]
+    holding = [s for s in stocks if s.get("position", 0) > 0]
     if holding:
         lines.append("HOLDING:")
         for s in holding:
