@@ -218,15 +218,15 @@ app.add_handler(CommandHandler("portfolio", portfolio))
 app.add_handler(CommandHandler("balance", show_balance))
 app.add_handler(CommandHandler("setbalance", set_balance))
 
-@flask_app.route(f"/webhook", methods=["POST"])
+@flask_app.route("/webhook", methods=["POST"])
 def webhook():
     update = Update.de_json(request.get_json(force=True), app.bot)
     app.update_queue.put(update)
     return "ok"
 
-if __name__ == "__main__":
-    async def main():
-        await app.bot.set_webhook(url=f"{APP_URL}/webhook")
-        flask_app.run(host="0.0.0.0", port=8000)
+async def main():
+    await app.bot.set_webhook(url=f"{APP_URL}/webhook")
+    flask_app.run(host="0.0.0.0", port=8000)
 
+if __name__ == "__main__":
     asyncio.run(main())
