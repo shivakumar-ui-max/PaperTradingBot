@@ -30,7 +30,7 @@ response = requests.get(url)
 data = response.json()
 
 for item in data:
-    if item["exchange"] == "NSE":
+    if item.get("exch_seg") == "NSE":
         symbol_token_map[item["symbol"]] = item["token"]
 
 # Helper Functions
