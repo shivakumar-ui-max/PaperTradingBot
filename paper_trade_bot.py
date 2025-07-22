@@ -30,7 +30,19 @@ ASK_BALANCE, ADD_SYMBOL, ADD_ENTRY, ADD_SL, ADD_TARGET, ADD_QTY, DELETE_TRACK = 
 
 temp_stock = {}
 
-# Utilities
+# LTP Fetcher with Fallback
+def get_ltp(symbol):
+    try:
+        stock = yf.Ticker(symbol)
+        price = stock.fast_info.get('lastPrice')
+        if price is None:
+            price = stock.fast_info.get('previousClose')
+        return float(price) if price else None
+    except Exception as e:
+        print(f"LTP error for {symbol}: {e}")
+        return None
+
+# Balance Functions
 def get_user_balance(user_id):
     bal = balance_collection.find_one({"user_id": user_id})
     return bal["value"] if bal else 100000
@@ -38,50 +50,22 @@ def get_user_balance(user_id):
 def update_user_balance(user_id, value):
     balance_collection.update_one({"user_id": user_id}, {"$set": {"value": value}}, upsert=True)
 
-def get_ltp(symbol):
-    try:
-        data = yf.Ticker(symbol).history(period="1m")
-        return round(data["Close"][-1], 2)
-    except:
-        return None
-
-def reconcile_balance(user_id):
-    last_log = logs_collection.find_one({"user_id": user_id}, sort=[("sell_time", -1)])
-    if last_log and "balance_after" in last_log:
-        update_user_balance(user_id, last_log["balance_after"])
-
-# Commands
+# Telegram Handlers
 def start(update: Update, context: CallbackContext):
-    keyboard = [["1️⃣ Balance", "2️⃣ Add / Modify Stock"], ["3️⃣ Portfolio", "4️⃣ Delete Tracking Stock"]]
+    keyboard = [["1️⃣ Balance", "2️⃣ Add Stock"], ["3️⃣ Portfolio", "4️⃣ Delete Stock"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    text = (
-        "\ud83d\udcc8 *Welcome to Paper Trading Bot*\n\n"
-        "Select an action:\n\n"
-        "1️⃣ *Balance*\n"
-        "2️⃣ *Add / Modify Stock*\n"
-        "3️⃣ *Portfolio*\n"
-        "4️⃣ *Delete Tracking Stock*\n\n"
-        "Type /help for command list."
-    )
-    update.message.reply_text(text, parse_mode="Markdown", reply_markup=reply_markup)
+    update.message.reply_text("📈 *Welcome to Paper Trade Bot*\n\nChoose an option:", parse_mode="Markdown", reply_markup=reply_markup)
 
 def help_cmd(update: Update, context: CallbackContext):
-    text = (
-        "\ud83d\udcd6 *Help Menu*\n\n"
-        "/start - Show main menu\n"
-        "/help - Show this message\n"
-        "/setbalance - Set initial balance\n"
-        "/cancel - Cancel current operation"
-    )
-    update.message.reply_text(text, parse_mode="Markdown")
+    update.message.reply_text("Commands:\n/start\n/help\n/setbalance\n/cancel", parse_mode="Markdown")
 
 def view_balance(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     balance = get_user_balance(uid)
-    update.message.reply_text(f"\ud83d\udcb0 Your Balance: \u20b9{balance:.2f}")
+    update.message.reply_text(f"💰 Balance: ₹{balance:.2f}")
 
 def set_balance(update: Update, context: CallbackContext):
-    update.message.reply_text("\ud83d\udcb8 Enter new balance:")
+    update.message.reply_text("Enter new balance:")
     return ASK_BALANCE
 
 def receive_balance(update: Update, context: CallbackContext):
@@ -89,45 +73,46 @@ def receive_balance(update: Update, context: CallbackContext):
     try:
         value = float(update.message.text.strip())
         update_user_balance(uid, value)
-        update.message.reply_text(f"\u2705 Balance set to \u20b9{value:.2f}")
+        update.message.reply_text(f"✅ Balance set to ₹{value:.2f}")
     except:
-        update.message.reply_text("\u274c Invalid number.")
+        update.message.reply_text("❌ Invalid number.")
     return ConversationHandler.END
 
+# Add Stock Flow
 def add_stock_start(update: Update, context: CallbackContext):
     uid = update.effective_user.id
-    temp_stock[uid] = {"in_progress": True}
-    update.message.reply_text("\ud83d\udd50 Enter Stock Symbol (e.g., TCS.NS):")
+    temp_stock[uid] = {}
+    update.message.reply_text("📌 Enter Stock Symbol (e.g., RELIANCE.NS):")
     return ADD_SYMBOL
 
 def add_stock_symbol(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     symbol = update.message.text.upper()
     ltp = get_ltp(symbol)
-    if ltp is None or ltp == 0:
-        update.message.reply_text("\u274c Invalid Symbol or No Data. Try again:")
+    if ltp is None:
+        update.message.reply_text("❌ Invalid Symbol or No Data. Try again:")
         return ADD_SYMBOL
     temp_stock[uid]["symbol"] = symbol
-    update.message.reply_text(f"\u270f\ufe0f Entry Price (LTP: \u20b9{ltp}):")
+    update.message.reply_text("✏️ Entry Price:")
     return ADD_ENTRY
 
 def add_stock_entry(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     temp_stock[uid]["entry"] = float(update.message.text)
-    update.message.reply_text("\ud83d\uded1 Stop Loss:")
+    update.message.reply_text("🛑 Stop Loss:")
     return ADD_SL
 
 def add_stock_sl(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     temp_stock[uid]["sl"] = float(update.message.text)
-    update.message.reply_text("\ud83c\udfaf Target (or type 'skip'):")
+    update.message.reply_text("🎯 Target (or 'skip'):")
     return ADD_TARGET
 
 def add_stock_target(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     text = update.message.text.lower()
     temp_stock[uid]["target"] = None if text == "skip" else float(text)
-    update.message.reply_text("\ud83d\udce6 Quantity:")
+    update.message.reply_text("📦 Quantity:")
     return ADD_QTY
 
 def add_stock_qty(update: Update, context: CallbackContext):
@@ -138,64 +123,49 @@ def add_stock_qty(update: Update, context: CallbackContext):
     stock["user_id"] = uid
     stocks_collection.insert_one(stock)
     temp_stock.pop(uid)
-    update.message.reply_text(f"\u2705 {stock['symbol']} added to tracking")
+    update.message.reply_text(f"✅ {stock['symbol']} added to tracking.")
     return ConversationHandler.END
 
 def cancel(update: Update, context: CallbackContext):
-    update.message.reply_text("\u274c Operation canceled.")
+    update.message.reply_text("❌ Operation canceled.")
     return ConversationHandler.END
 
+# Delete Stock
 def delete_stock(update: Update, context: CallbackContext):
-    update.message.reply_text("\ud83d\udd91\ufe0f Enter stock symbol to delete:")
+    update.message.reply_text("🗑️ Enter stock symbol to delete:")
     return DELETE_TRACK
 
 def confirm_delete(update: Update, context: CallbackContext):
     uid = update.effective_user.id
     symbol = update.message.text.upper()
     stocks_collection.delete_one({"symbol": symbol, "user_id": uid})
-    update.message.reply_text(f"\u2705 {symbol} removed from tracking.")
+    update.message.reply_text(f"✅ {symbol} removed.")
     return ConversationHandler.END
 
-def portfolio(update, context):
+# Portfolio
+def portfolio(update: Update, context: CallbackContext):
     uid = update.effective_user.id
-    reconcile_balance(uid)
-
     stocks = list(stocks_collection.find({"user_id": uid}))
     logs = list(logs_collection.find({"user_id": uid}))
 
     lines = []
-    lines.append(f"\ud83d\udcc8 Portfolio: \ud83d\uddd3\ufe0f {datetime.now().strftime('%d-%B-%Y')}\n")
+    lines.append(f"📊 Portfolio: 📅 {datetime.now().strftime('%d-%B-%Y')}")
 
-    tracking = [s for s in stocks if s.get("position") == 0]
-    holding = [s for s in stocks if s.get("position") > 0]
-
-    if tracking:
-        lines.append("TRACKING:")
-        for s in tracking:
-            ltp = get_ltp(s['symbol'])
-            lines.append(f"\ud83d\udd0d {s['symbol']} | Entry: \u20b9{s['entry']} | LTP: \u20b9{ltp} | Qty: {s['qty']}")
-        lines.append("")
-
-    if holding:
-        lines.append("HOLDING:")
-        for s in holding:
-            ltp = get_ltp(s['symbol'])
-            pnl = (ltp - s['entry']) * s['qty']
-            status = "\ud83d\udfe2" if pnl >= 0 else "\ud83d\udd34"
-            lines.append(f"{status} {s['symbol']} | Entry: \u20b9{s['entry']} | Now: \u20b9{ltp} | Qty: {s['qty']} | P&L: \u20b9{pnl:+.2f}")
-        lines.append("")
+    for s in stocks:
+        ltp = get_ltp(s["symbol"])
+        lines.append(f"📍 {s['symbol']} | Entry: ₹{s['entry']} | LTP: ₹{ltp} | Qty: {s['qty']}")
 
     today = datetime.now().strftime("%Y-%m-%d")
     today_logs = [l for l in logs if l.get("sell_time", "").startswith(today)]
     today_pnl = sum(l["pnl"] for l in today_logs if l.get("sell_price"))
-    lines.append(f"TODAY P&L: \u20b9{today_pnl:+.2f}")
-    lines.append("-" * 50)
-
     total_pnl = sum(l["pnl"] for l in logs if l.get("sell_price"))
-    lines.append(f"\ud83d\udcc8 Overall Realized P&L: \u20b9{total_pnl:+.2f}")
+
+    lines.append(f"\nTODAY P&L: ₹{today_pnl:+.2f}")
+    lines.append(f"📈 Total Realized P&L: ₹{total_pnl:+.2f}")
 
     update.message.reply_text("\n".join(lines))
 
+# Background Trading Logic
 def track(bot):
     while True:
         for stock in stocks_collection.find():
@@ -214,27 +184,26 @@ def track(bot):
                     update_user_balance(user_id, bal - cost)
                     stocks_collection.update_one({"_id": stock["_id"]}, {"$set": {"position": stock["qty"], "entry_price": ltp}})
                     logs_collection.insert_one({"user_id": user_id, "symbol": symbol, "qty": stock["qty"], "buy_price": ltp, "buy_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "sell_price": None})
-                    bot.send_message(chat_id=user_id, text=f"\ud83d\udfe2 BUY {symbol} @ \u20b9{ltp}")
+                    bot.send_message(chat_id=user_id, text=f"🟢 BUY {symbol} @ ₹{ltp}")
                 elif stock["position"] > 0:
                     if ltp <= stock["sl"] or (stock.get("target") and ltp >= stock["target"]):
                         pnl = (ltp - stock["entry_price"]) * stock["qty"]
                         new_bal = get_user_balance(user_id) + (ltp * stock["qty"])
                         update_user_balance(user_id, new_bal)
                         stocks_collection.delete_one({"_id": stock["_id"]})
-                        logs_collection.update_one({"user_id": user_id, "symbol": symbol, "sell_price": None}, {"$set": {"sell_price": ltp, "sell_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "pnl": pnl, "reason": "SL/Target", "balance_after": new_bal}})
-                        bot.send_message(chat_id=user_id, text=f"\ud83d\udd34 SELL {symbol} @ \u20b9{ltp} | P&L: \u20b9{pnl:+.2f}")
+                        logs_collection.update_one({"user_id": user_id, "symbol": symbol, "sell_price": None}, {"$set": {"sell_price": ltp, "sell_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"), "pnl": pnl}})
+                        bot.send_message(chat_id=user_id, text=f"🔴 SELL {symbol} @ ₹{ltp} | P&L: ₹{pnl:+.2f}")
             except Exception as e:
                 print(e)
         time.sleep(60)
 
-# Main
-
+# Main Function
 def main():
     updater = Updater(TELEGRAM_BOT_TOKEN, use_context=True)
     dp = updater.dispatcher
 
     conv_handler = ConversationHandler(
-        entry_points=[MessageHandler(Filters.regex("(?i)^2|add|modify"), add_stock_start)],
+        entry_points=[MessageHandler(Filters.regex("(?i)^2|add"), add_stock_start)],
         states={
             ADD_SYMBOL: [MessageHandler(Filters.text & ~Filters.command, add_stock_symbol)],
             ADD_ENTRY: [MessageHandler(Filters.text & ~Filters.command, add_stock_entry)],
