@@ -5,6 +5,7 @@ from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ConversationHandler, ContextTypes, filters
 from pymongo import MongoClient
 from dotenv import load_dotenv
+from flask import Flask, request
 
 load_dotenv()
 
@@ -12,6 +13,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URI = os.getenv("MONGO_URI")
 API_KEY = os.getenv("API_KEY")
 SECRET_KEY = os.getenv("SECRET_KEY")
+APP_URL = os.getenv("APP_URL")
 USER_ID = "1145551286"
 
 client = MongoClient(MONGO_URI)
@@ -30,7 +32,7 @@ response = requests.get(url)
 data = response.json()
 
 for item in data:
-    if item.get("exch_seg") == "NSE":
+    if item.get("exchange") == "NSE":
         symbol_token_map[item["symbol"]] = item["token"]
 
 # Helper Functions
@@ -193,6 +195,10 @@ async def set_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Balance set to ₹{amt}")
     return ConversationHandler.END
 
+# Create Flask App for Webhook
+
+flask_app = Flask(__name__)
+
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 
 conv_handler = ConversationHandler(
@@ -211,4 +217,12 @@ app.add_handler(CommandHandler("portfolio", portfolio))
 app.add_handler(CommandHandler("balance", show_balance))
 app.add_handler(CommandHandler("setbalance", set_balance))
 
-app.run_polling()
+@flask_app.route(f"/webhook", methods=["POST"])
+def webhook():
+    update = Update.de_json(request.get_json(force=True), app.bot)
+    app.update_queue.put(update)
+    return "ok"
+
+if __name__ == "__main__":
+    app.bot.set_webhook(url=f"{APP_URL}/webhook")
+    flask_app.run(host="0.0.0.0", port=8000)
