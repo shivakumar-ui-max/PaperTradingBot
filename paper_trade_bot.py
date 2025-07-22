@@ -1,6 +1,7 @@
 import os
 import datetime
 import requests
+import asyncio
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ConversationHandler, ContextTypes, filters
 from pymongo import MongoClient
@@ -224,5 +225,8 @@ def webhook():
     return "ok"
 
 if __name__ == "__main__":
-    app.bot.set_webhook(url=f"{APP_URL}/webhook")
-    flask_app.run(host="0.0.0.0", port=8000)
+    async def main():
+        await app.bot.set_webhook(url=f"{APP_URL}/webhook")
+        flask_app.run(host="0.0.0.0", port=8000)
+
+    asyncio.run(main())
