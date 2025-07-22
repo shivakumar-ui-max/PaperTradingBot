@@ -35,8 +35,10 @@ def get_ltp(symbol):
     try:
         stock = yf.Ticker(symbol)
         price = stock.fast_info.get('lastPrice')
-        if price is None:
-            price = stock.fast_info.get('previousClose')
+        if price is None or price == 0:
+            hist = stock.history(period="1d", interval="1m")
+            if not hist.empty:
+                price = hist["Close"].iloc[-1]
         return float(price) if price else None
     except Exception as e:
         print(f"LTP error for {symbol}: {e}")
