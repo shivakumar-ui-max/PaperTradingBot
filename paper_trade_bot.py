@@ -1,9 +1,8 @@
 import os
 import datetime
 import requests
-import asyncio
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ConversationHandler, ContextTypes, filters
+from telegram.ext import Application, CommandHandler, MessageHandler, ConversationHandler, ContextTypes, filters
 from pymongo import MongoClient
 from dotenv import load_dotenv
 from flask import Flask, request
@@ -200,7 +199,7 @@ async def set_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 flask_app = Flask(__name__)
 
-app = ApplicationBuilder().token(BOT_TOKEN).build()
+app = Application.builder().token(BOT_TOKEN).updater(None).build()
 
 conv_handler = ConversationHandler(
     entry_points=[CommandHandler("start", start)],
@@ -218,15 +217,15 @@ app.add_handler(CommandHandler("portfolio", portfolio))
 app.add_handler(CommandHandler("balance", show_balance))
 app.add_handler(CommandHandler("setbalance", set_balance))
 
-@flask_app.route("/webhook", methods=["POST"])
-def webhook():
-    update = Update.de_json(request.get_json(force=True), app.bot)
-    app.update_queue.put(update)
+@flask_app.post("/webhook")
+async def webhook_handler():
+    await app.update_queue.put(Update.de_json(await request.get_json(), app.bot))
     return "ok"
 
-async def main():
-    await app.bot.set_webhook(url=f"{APP_URL}/webhook")
-    flask_app.run(host="0.0.0.0", port=8000)
-
 if __name__ == "__main__":
-    asyncio.run(main())
+    app.run_webhook(
+        listen="0.0.0.0",
+        port=8000,
+        webhook_url=f"{APP_URL}/webhook",
+        web_app=flask_app
+    )
