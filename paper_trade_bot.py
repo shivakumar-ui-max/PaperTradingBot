@@ -232,6 +232,7 @@ async def run_bot():
     await app.run_polling()
 
 # ---- Main entry: run both Flask (for Render health check) and bot ----
+import threading
 if __name__ == "__main__":
 
     def start_polling():
