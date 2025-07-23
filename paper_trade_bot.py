@@ -6,7 +6,8 @@ from telegram.ext import Application, CommandHandler, MessageHandler, Conversati
 from pymongo import MongoClient
 from dotenv import load_dotenv
 import asyncio
-
+from flask import Flask
+from threading import Thread
 
 
 load_dotenv()
@@ -216,12 +217,32 @@ app.add_handler(CommandHandler("balance", show_balance))
 app.add_handler(CommandHandler("setbalance", set_balance))
 
 
-if __name__ == "__main__":
-    async def main():
-        print("Starting bot in polling mode...")
-        await app.initialize()
-        await app.start()
-        await app.updater.start_polling()
-        await app.updater.idle()
 
-    asyncio.run(main())
+
+# ---- Flask app for Render port binding ----
+flask_app = Flask(__name__)
+
+@flask_app.route("/")
+def index():
+    return "✅ Paper Trading Bot is running with polling."
+
+# ---- Start Telegram bot in background ----
+def run_bot():
+    try:
+        asyncio.run(start_bot())
+    except Exception as e:
+        print(f"Bot error: {e}")
+
+async def start_bot():
+    print("Starting bot in polling mode...")
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+    await app.updater.idle()
+
+if __name__ == "__main__":
+    bot_thread = Thread(target=run_bot)
+    bot_thread.start()
+    
+    port = int(os.environ.get("PORT", 10000))
+    flask_app.run(host="0.0.0.0", port=port)
