@@ -226,7 +226,7 @@ async def start(update, context):
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
-
+    application.add_handler(CommandHandler("help", help_command))
     application.run_webhook(
         listen="0.0.0.0",
         port=PORT,
