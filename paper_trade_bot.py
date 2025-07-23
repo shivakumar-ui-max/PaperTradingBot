@@ -219,8 +219,14 @@ app.add_handler(CommandHandler("setbalance", set_balance))
 
 @flask_app.post("/webhook")
 async def webhook_handler():
-    await app.update_queue.put(Update.de_json(await request.get_json(), app.bot))
-    return "ok"
+    try:
+        data = await request.get_json()
+        update = Update.de_json(data, app.bot)
+        await app.update_queue.put(update)
+        return "ok"
+    except Exception as e:
+        print(f"Webhook error: {e}")
+        return "error", 500
 
 if __name__ == "__main__":
     app.run_webhook(
