@@ -219,14 +219,27 @@ app.add_handler(CommandHandler("setbalance", set_balance))
 
 @flask_app.post("/webhook")
 async def webhook_handler():
+    print("Webhook endpoint hit")  # Log when endpoint is accessed
     try:
         data = await request.get_json()
+        print(f"Received webhook data: {data}")  # Log incoming data
         update = Update.de_json(data, app.bot)
-        await app.update_queue.put(update)
-        return "ok"
+        if update:
+            print(f"Processed update: {update.update_id}")  # Log update ID
+            await app.update_queue.put(update)
+            return "ok"
+        else:
+            print("Failed to parse update")
+            return "error", 500
     except Exception as e:
         print(f"Webhook error: {e}")
         return "error", 500
+
+@flask_app.get("/health")
+async def health_check():
+    print("Health check endpoint hit")
+    return {"status": "ok"}
+
 
 if __name__ == "__main__":
     app.run_webhook(
