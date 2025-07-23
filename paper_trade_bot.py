@@ -235,10 +235,7 @@ def run_bot():
 
 async def start_bot():
     print("Starting bot in polling mode...")
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-    await app.updater.idle()
+    await app.run_polling()
 
 if __name__ == "__main__":
     bot_thread = Thread(target=run_bot)
