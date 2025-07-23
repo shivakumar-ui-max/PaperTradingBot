@@ -5,7 +5,9 @@ from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, ConversationHandler, ContextTypes, filters
 from pymongo import MongoClient
 from dotenv import load_dotenv
-from flask import Flask, request
+import asyncio
+
+
 
 load_dotenv()
 
@@ -195,10 +197,6 @@ async def set_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Balance set to ₹{amt}")
     return ConversationHandler.END
 
-# Create Flask App for Webhook
-
-flask_app = Flask(__name__)
-
 app = Application.builder().token(BOT_TOKEN).updater(None).build()
 
 conv_handler = ConversationHandler(
@@ -217,33 +215,13 @@ app.add_handler(CommandHandler("portfolio", portfolio))
 app.add_handler(CommandHandler("balance", show_balance))
 app.add_handler(CommandHandler("setbalance", set_balance))
 
-@flask_app.post("/webhook")
-async def webhook_handler():
-    print("Webhook endpoint hit")  # Log when endpoint is accessed
-    try:
-        data = await request.get_json()
-        print(f"Received webhook data: {data}")  # Log incoming data
-        update = Update.de_json(data, app.bot)
-        if update:
-            print(f"Processed update: {update.update_id}")  # Log update ID
-            await app.update_queue.put(update)
-            return "ok"
-        else:
-            print("Failed to parse update")
-            return "error", 500
-    except Exception as e:
-        print(f"Webhook error: {e}")
-        return "error", 500
-
-@flask_app.get("/health")
-async def health_check():
-    return "OK", 200
-
 
 if __name__ == "__main__":
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=8000,
-        webhook_url=f"{APP_URL}/webhook",
-        web_app=flask_app
-    )
+    async def main():
+        print("Starting bot in polling mode...")
+        await app.initialize()
+        await app.start()
+        await app.updater.start_polling()
+        await app.updater.idle()
+
+    asyncio.run(main())
