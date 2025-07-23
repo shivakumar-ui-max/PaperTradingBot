@@ -237,8 +237,7 @@ async def webhook_handler():
 
 @flask_app.get("/health")
 async def health_check():
-    print("Health check endpoint hit")
-    return {"status": "ok"}
+    return "OK", 200
 
 
 if __name__ == "__main__":
