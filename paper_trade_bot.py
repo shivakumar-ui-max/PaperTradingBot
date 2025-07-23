@@ -17,7 +17,7 @@ MONGO_URI = os.getenv("MONGO_URI")
 API_KEY = os.getenv("API_KEY")
 SECRET_KEY = os.getenv("SECRET_KEY")
 APP_URL = os.getenv("APP_URL")
-USER_ID = "1145551286"
+USER_ID = os.getenv("CHAT_ID")
 
 client = MongoClient(MONGO_URI)
 db = client["paper_trading"]
@@ -218,31 +218,21 @@ app.add_handler(CommandHandler("balance", show_balance))
 app.add_handler(CommandHandler("setbalance", set_balance))
 
 
+PORT = int(os.environ.get('PORT', 8443))
 
+async def start(update, context):
+    await update.message.reply_text("✅ Bot is responding via webhook!")
 
-# ---- Flask app for Render port binding ----
-flask_app = Flask(__name__)
+def main():
+    application = Application.builder().token(BOT_TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
 
-@flask_app.route("/")
-def index():
-    return "✅ Paper Trading Bot is running with polling."
+    application.run_webhook(
+        listen="0.0.0.0",
+        port=PORT,
+        url_path=BOT_TOKEN,
+        webhook_url=f"{APP_URL}/{BOT_TOKEN}"
+    )
 
-# ---- Start the bot in polling mode correctly ----
-async def run_bot():
-    print("🔁 Starting bot in polling mode...")
-    await app.run_polling()
-
-# ---- Main entry: run both Flask (for Render health check) and bot ----
-import threading
-if __name__ == "__main__":
-
-    def start_polling():
-        try:
-            asyncio.run(run_bot())
-        except Exception as e:
-            print("❌ Bot failed to start:", e)
-
-    if __name__ == "__main__":
-        threading.Thread(target=start_polling).start()
-        port = int(os.environ.get("PORT", 10000))
-        flask_app.run(host="0.0.0.0", port=port)
+if __name__ == '__main__':
+    main()
