@@ -227,24 +227,20 @@ def index():
     return "✅ Paper Trading Bot is running with polling."
 
 # ---- Start the bot in polling mode correctly ----
-async def start_bot():
-    print("✅ Starting bot in polling mode...")
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-    await app.updater.idle()
+async def run_bot():
+    print("🔁 Starting bot in polling mode...")
+    await app.run_polling()
 
 # ---- Main entry: run both Flask (for Render health check) and bot ----
 if __name__ == "__main__":
-    import threading
 
-    # Start Telegram bot in a separate thread
-    def run_telegram():
-        asyncio.run(start_bot())
+    def start_polling():
+        try:
+            asyncio.run(run_bot())
+        except Exception as e:
+            print("❌ Bot failed to start:", e)
 
-    telegram_thread = threading.Thread(target=run_telegram)
-    telegram_thread.start()
-
-    # Start Flask app (for Render HTTP port binding)
-    port = int(os.environ.get("PORT", 10000))
-    flask_app.run(host="0.0.0.0", port=port)
+    if __name__ == "__main__":
+        threading.Thread(target=start_polling).start()
+        port = int(os.environ.get("PORT", 10000))
+        flask_app.run(host="0.0.0.0", port=port)
