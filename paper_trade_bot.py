@@ -198,7 +198,8 @@ async def set_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"Balance set to ₹{amt}")
     return ConversationHandler.END
 
-app = Application.builder().token(BOT_TOKEN).updater(None).build()
+app = Application.builder().token(BOT_TOKEN).build()
+
 
 conv_handler = ConversationHandler(
     entry_points=[CommandHandler("start", start)],
