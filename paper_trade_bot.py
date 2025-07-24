@@ -220,8 +220,6 @@ app.add_handler(CommandHandler("setbalance", set_balance))
 
 PORT = int(os.environ.get('PORT', 8443))
 
-async def start(update, context):
-    await update.message.reply_text("✅ Bot is responding via webhook!")
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
