@@ -110,10 +110,11 @@ def modify_stock(symbol, sl, target):
 
 def delete_stock(symbol):
     tracked_stocks.delete_one({"symbol": symbol})
-
 async def sell_stock(symbol, entry, qty, sl, target, price, reason, context=None, chat_id=None):
     pnl = (price - entry) * qty
     new_balance = get_balance()["balance"] + price * qty
+    now = datetime.datetime.now()
+    today_str = now.strftime("%Y-%m-%d")
 
     trade_logs.insert_one({
         "symbol": symbol,
@@ -146,24 +147,49 @@ async def sell_stock(symbol, entry, qty, sl, target, price, reason, context=None
         )
         await context.bot.send_message(chat_id=chat_id, text=message)
 
+async def execution(symbol, entry, qty, sl, target):
+    try:
+        ticker = yf.Ticker(symbol)
+        data = ticker.history(period='1d', interval='1m')
 
+        if data.empty:
+            print(f"⚠️ No candle data found for {symbol}")
+            return
 
-async def execution(symbol, entry, qty, sl, target, context=None, chat_id=None):
-    price = get_price(symbol)
-    if price is None:
-        print("⚠️ No price data found for:", symbol)
-        return
+        latest_candle = data.iloc[-1]
+        open_ = float(latest_candle['Open'])
+        high = float(latest_candle['High'])
+        low = float(latest_candle['Low'])
+        close = float(latest_candle['Close'])
 
-    if abs(price - entry) < 0.2:
-        tracked_stocks.update_one(
-            {"symbol": symbol, "detail": "tracking"},
-            {"$set": {"detail": "holding"}}
-        )
-    elif price <= sl:
-        await sell_stock(symbol, entry, qty, sl, target, price, "Stop Loss Hit", context, chat_id)
-    elif price >= target:
-        await sell_stock(symbol, entry, qty, sl, target, price, "Target Hit", context, chat_id)
+        tracked = tracked_stocks.find_one({"symbol": symbol})
+        if not tracked:
+            print(f"⚠️ {symbol} not found in tracking.")
+            return
 
+        status = tracked.get("detail")
+
+        # Entry logic: check if price range allows entry
+        if status == "tracking":
+            if low <= entry <= high:
+                tracked_stocks.update_one(
+                    {"symbol": symbol},
+                    {"$set": {"detail": "holding"}}
+                )
+                print(f"✅ Order Executed for {symbol} at ₹{entry}")
+            else:
+                print(f"⏳ Waiting for {symbol} to trigger entry ₹{entry} (Range: {low}-{high})")
+            return
+
+        # Exit logic: SL or Target
+        if status == "holding":
+            if low <= sl:
+                await sell_stock(symbol, entry, qty, sl, target, sl, "Stop Loss Hit")
+            elif high >= target:
+                await sell_stock(symbol, entry, qty, sl, target, target, "Target Hit")
+
+    except Exception as e:
+        print(f"❌ Execution Error for {symbol}:", e)
 
 
 # --- Telegram Command Handlers ---
@@ -259,10 +285,6 @@ async def add_modify_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Failed to add stock. Please try again.")
         return ConversationHandler.END
 
-
-
-    return ConversationHandler.END
-
 async def portfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = f"📊 Portfolio: 📅 {today_str}\n\n"
 
@@ -342,9 +364,7 @@ async def monitor_all(application):
                 entry=stock['entry_price'],
                 qty=stock['qty'],
                 sl=stock['sl'],
-                target=stock.get('target'),
-                context=application,
-                chat_id=MY_CHAT_ID
+                target=stock.get('target')
             )
         await asyncio.sleep(10)
 
@@ -352,45 +372,48 @@ async def on_startup(application):
     # Schedule the monitor_all task after the application starts
     application.create_task(monitor_all(application))
 
-
 def main():
     import logging
     logging.basicConfig(level=logging.INFO)
 
     application = Application.builder().token(BOT_TOKEN).build()
 
-    conv_handler = ConversationHandler(
+    # 🔁 Conversation handler for /start and menu options
+    main_conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
-            BALANCE: [MessageHandler(filters.TEXT & ~filters.COMMAND, show_balance)],
-            ADD_STOCK: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_modify_stock)],
-            DELETE_STOCK: [MessageHandler(filters.TEXT & ~filters.COMMAND, delete_tracking)],
-            PORTFOLIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, portfolio)],
+            BALANCE: [MessageHandler(filters.Regex("^(1️⃣|1|[Bb]alance)$"), show_balance)],
+            DELETE_STOCK: [MessageHandler(filters.Regex("^(4️⃣|4|[Dd]elete.*)$"), delete_tracking)],
+            PORTFOLIO: [MessageHandler(filters.Regex("^(3️⃣|3|[Pp]ortfolio)$"), portfolio)],
         },
-        fallbacks=[CommandHandler("cancel", cancel)]
+        fallbacks=[CommandHandler("cancel", cancel)],
     )
 
-    application.add_handler(conv_handler)
+    # ➕ Separate handler for Add/Modify Stock
+    add_stock_conv_handler = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^(2️⃣|2|[Aa]dd.*|[Mm]odify.*)$"), ask_stock_details)],
+        states={
+            ADD_STOCK: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_modify_stock)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+
+    # ✅ Register handlers
+    application.add_handler(main_conv_handler)
+    application.add_handler(add_stock_conv_handler)
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("portfolio", portfolio))
     application.add_handler(CommandHandler("balance", show_balance))
     application.add_handler(CommandHandler("setbalance", set_balance))
 
-    application.add_handler(MessageHandler(
-        filters.TEXT & filters.Regex(r"^(1️⃣|1|[Bb]alance)$"), show_balance
-    ))
-    application.add_handler(MessageHandler(
-        filters.TEXT & filters.Regex(r"^(2️⃣|2|[Aa]dd|[Mm]odify)$"), ask_stock_details
-    ))
-    application.add_handler(MessageHandler(
-        filters.TEXT & filters.Regex(r"^(3️⃣|3|[Pp]ortfolio)$"), portfolio
-    ))
-    application.add_handler(MessageHandler(
-        filters.TEXT & filters.Regex(r"^(4️⃣|4|[Dd]elete)$"), delete_tracking
-    ))
+    # 🧠 Quick reply handlers
+    application.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"^(1️⃣|1|[Bb]alance)$"), show_balance))
+    application.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"^(2️⃣|2|[Aa]dd|[Mm]odify)$"), ask_stock_details))
+    application.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"^(3️⃣|3|[Pp]ortfolio)$"), portfolio))
+    application.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"^(4️⃣|4|[Dd]elete)$"), delete_tracking))
 
+    # 🌐 Webhook setup
     application.post_init = on_startup
-
     application.run_webhook(
         listen="0.0.0.0",
         port=PORT,
@@ -400,3 +423,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
