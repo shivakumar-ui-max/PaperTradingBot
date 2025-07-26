@@ -200,6 +200,16 @@ async def help_command(update: Update, context: CallbackContext):
     )
     await update.message.reply_text(text, parse_mode="Markdown")
 
+async def ask_stock_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📥 Please enter stock in this format:\n"
+        "`SYMBOL, ENTRY, QTY, SL, [TARGET]`\n\n"
+        "📌 Example:\n`RELIANCE, 2800, 5, 2750, 2900`",
+        parse_mode="Markdown"
+    )
+    return ADD_STOCK
+
+
 async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     bal = get_balance()["balance"]
     await update.message.reply_text(f"Current Balance: ₹{bal}")
@@ -223,8 +233,10 @@ async def add_modify_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
             add_stock(symbol, entry, qty, sl, target,)
             await execution(symbol, entry, qty, sl, target, context=context, chat_id=update.effective_chat.id)
             await update.message.reply_text(f"{symbol} added successfully!")
-    except:
-        await update.message.reply_text("Invalid format. Use: SYMBOL, ENTRY, QTY, SL, [TARGET]")
+    except Exception as e:
+        await update.message.reply_text("❌ Invalid format. Use: SYMBOL, ENTRY, QTY, SL, [TARGET]")
+        print(f"Error in add_modify_stock: {e}")
+
 
     return ConversationHandler.END
 
@@ -340,13 +352,12 @@ def main():
     application.add_handler(CommandHandler("portfolio", portfolio))
     application.add_handler(CommandHandler("balance", show_balance))
     application.add_handler(CommandHandler("setbalance", set_balance))
-    application.add_handler(CommandHandler("start", start))
 
     application.add_handler(MessageHandler(
         filters.TEXT & filters.Regex(r"^(1️⃣|1|[Bb]alance)$"), show_balance
     ))
     application.add_handler(MessageHandler(
-        filters.TEXT & filters.Regex(r"^(2️⃣|2|[Aa]dd|[Mm]odify)$"), add_modify_stock
+        filters.TEXT & filters.Regex(r"^(2️⃣|2|[Aa]dd|[Mm]odify)$"), ask_stock_details
     ))
     application.add_handler(MessageHandler(
         filters.TEXT & filters.Regex(r"^(3️⃣|3|[Pp]ortfolio)$"), portfolio
