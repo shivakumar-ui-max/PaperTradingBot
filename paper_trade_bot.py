@@ -1,10 +1,6 @@
 import os
 import datetime
-import requests
 import asyncio
-import json
-from flask import Flask
-from threading import Thread
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
     Application, CommandHandler, MessageHandler, ConversationHandler,
@@ -12,7 +8,6 @@ from telegram.ext import (
 )
 from pymongo import MongoClient
 from dotenv import load_dotenv
-from bson import ObjectId
 import yfinance as yf
 
 load_dotenv()
@@ -38,7 +33,7 @@ today_str = datetime.datetime.now().strftime("%Y-%m-%d")
 latest_doc = balance.find_one({}, sort=[("_id", -1)])
 
 # Constants for conversation handler
-ADD_STOCK, DELETE_STOCK, PORTFOLIO = range(3)
+BALANCE,ADD_STOCK, DELETE_STOCK, PORTFOLIO = range(4)
 
 # --- Utility Functions ---
 
@@ -332,6 +327,7 @@ def main():
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
         states={
+            BALANCE: [MessageHandler(filters.TEXT & ~filters.COMMAND, show_balance)],
             ADD_STOCK: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_modify_stock)],
             DELETE_STOCK: [MessageHandler(filters.TEXT & ~filters.COMMAND, delete_tracking)],
             PORTFOLIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, portfolio)],
@@ -344,8 +340,21 @@ def main():
     application.add_handler(CommandHandler("portfolio", portfolio))
     application.add_handler(CommandHandler("balance", show_balance))
     application.add_handler(CommandHandler("setbalance", set_balance))
-
     application.add_handler(CommandHandler("start", start))
+
+    application.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex(r"^(1️⃣|1|[Bb]alance)$"), show_balance
+    ))
+    application.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex(r"^(2️⃣|2|[Aa]dd|[Mm]odify)$"), add_modify_stock
+    ))
+    application.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex(r"^(3️⃣|3|[Pp]ortfolio)$"), portfolio
+    ))
+    application.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex(r"^(4️⃣|4|[Dd]elete)$"), delete_tracking
+    ))
+
     application.post_init = on_startup
 
     application.run_webhook(
