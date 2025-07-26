@@ -78,15 +78,21 @@ def get_price(symbol):
     try:
         ticker = yf.Ticker(symbol)
         data = ticker.history(period='1d', interval='1m')
+
         if not data.empty:
-            ltp = data['Close'].iloc[-1]
-            return float(ltp)
+            ltp = float(data['Close'].iloc[-1])
+            return {"price": ltp, "source": "live"}
         else:
-            print(f"❌ No data found for {symbol}")
-            return None
+            info = ticker.info
+            if 'previousClose' in info:
+                close_price = float(info['previousClose'])
+                return {"price": close_price, "source": "close"}
+            else:
+                return {"price": None, "source": "unavailable"}
     except Exception as e:
-        print(f"❌ Error fetching LTP: {e}")
-        return None
+        print(f"❌ Error fetching price for {symbol}: {e}")
+        return {"price": None, "source": "error"}
+
 
 # --- Core Trading Logic ---
 
