@@ -216,36 +216,48 @@ async def show_balance(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def add_modify_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
     try:
-        parts = text.split(',')
-        if len(parts) < 4:
-            raise ValueError("Not enough parameters")
+        text = update.message.text
+        data = [d.strip() for d in text.split(",")]
 
-        input_symbol = parts[0].strip().upper()
-        symbol = input_symbol if input_symbol.endswith(".NS") else input_symbol + ".NS"
-        entry = float(parts[1].strip())
-        qty = int(parts[2].strip())
-        sl = float(parts[3].strip())
-        target = float(parts[4].strip()) if len(parts) > 4 else None
+        if len(data) < 4:
+            await update.message.reply_text("❌ Invalid format. Please use:\nSYMBOL, ENTRY, QTY, SL, [TARGET]")
+            return ConversationHandler.END
 
-        if tracked_stocks.find_one({"symbol": symbol}):
-            modify_stock(symbol, sl, target)
-            await update.message.reply_text(f"{symbol} modified successfully!")
-        else:
-            add_stock(symbol, entry, qty, sl, target)
-            await execution(symbol, entry, qty, sl, target, context=context, chat_id=update.effective_chat.id)
-            await update.message.reply_text(f"{symbol} added successfully!")
+        symbol = data[0].upper()
+        entry = float(data[1])
+        qty = int(data[2])
+        sl = float(data[3])
+        target = float(data[4]) if len(data) >= 5 else None
 
+        tracked_stocks.update_one(
+            {"symbol": symbol},
+            {
+                "$set": {
+                    "symbol": symbol,
+                    "entry_price": entry,
+                    "qty": qty,
+                    "sl": sl,
+                    "target": target,
+                    "status": "tracking",
+                    "detail": "tracking",
+                    "date": datetime.datetime.now().strftime("%Y-%m-%d")
+                }
+            },
+            upsert=True
+        )
+
+        await update.message.reply_text(
+            f"✅ Stock added to tracking!\n\n"
+            f"SYMBOL: {symbol}\nENTRY: ₹{entry}\nQTY: {qty}\nSL: ₹{sl}\n"
+            f"TARGET: {'❌ Not Set' if not target else f'₹{target}'}"
+        )
         return ConversationHandler.END
 
     except Exception as e:
-        await update.message.reply_text(
-            "❌ Invalid format. Use: SYMBOL, ENTRY, QTY, SL, [TARGET]\n\n"
-            "📌 Example:\nRELIANCE, 2800, 5, 2750, 2900\nALLCARGO, 34.5, 580, 33.5"
-        )
-        print(f"Error in add_modify_stock: {e}")
-        return ADD_STOCK  # stay in same state
+        print("ERROR in add_modify_stock:", e)
+        await update.message.reply_text("❌ Failed to add stock. Please try again.")
+        return ConversationHandler.END
 
 
 
