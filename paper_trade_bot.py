@@ -76,7 +76,7 @@ def get_balance():
 
 def get_price(symbol):
     try:
-        yf_symbol = symbol if symbol.endswith(".NS") else symbol + ".NS"
+        yf_symbol = symbol.upper().replace(".NS", "") + ".NS"
         ticker = yf.Ticker(yf_symbol)
         data = ticker.history(period='1d', interval='1m')
         if not data.empty:
@@ -320,13 +320,13 @@ async def portfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text += f"⚠️ {h['symbol']} | LTP Not Found\n"
 
     # ⏳ TRACKING
-    text += "\n⏳ TRACKING\n"
+    text += "\👀 TRACKING\n"
     tracking = tracked_stocks.find({"detail": "tracking"})
     for t in tracking:
         ltp = get_price(t['symbol'])
         invested = t['entry_price'] * t['qty']
         text += (
-            f"⏳ {t['symbol']} | Entry: ₹{t['entry_price']} | Now: ₹{ltp} | "
+            f"⏱️ {t['symbol']} | Entry: ₹{t['entry_price']} | Now: ₹{ltp} | "
             f"SL: {t.get('sl')} | Target: {t.get('target', 'None')} | Qty: {t['qty']} | "
             f"Invested: ₹{round(invested, 2)}\n"
         )
@@ -412,17 +412,18 @@ def main():
 
     # 🔁 Conversation handler for /start and menu options
     main_conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={
-            BALANCE: [MessageHandler(filters.Regex("^(1️⃣|1|[Bb]alance)$"), show_balance)],
-            PORTFOLIO: [MessageHandler(filters.Regex("^(3️⃣|3|[Pp]ortfolio)$"), portfolio)],
-            DELETE_STOCK: [
-               MessageHandler(filters.Regex("^(4️⃣|4|[Dd]elete.*)$"), delete_tracking),
-               MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_delete_tracking)
-               ],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-    )
+    entry_points=[
+        CommandHandler("start", start),
+        MessageHandler(filters.Regex("^(4️⃣|4|[Dd]elete.*)$"), delete_tracking),
+    ],
+    states={
+        DELETE_STOCK: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_delete_tracking)
+        ],
+    },
+    fallbacks=[CommandHandler("cancel", cancel)],
+)
+
 
     # ➕ Separate handler for Add/Modify Stock
     add_stock_conv_handler = ConversationHandler(
