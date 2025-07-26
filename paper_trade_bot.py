@@ -345,7 +345,7 @@ def main():
     application.add_handler(CommandHandler("balance", show_balance))
     application.add_handler(CommandHandler("setbalance", set_balance))
 
-    application.add_handler(CommandHandler("start", start, run_async=True))
+    application.add_handler(CommandHandler("start", start))
     application.post_init = on_startup
 
     application.run_webhook(
