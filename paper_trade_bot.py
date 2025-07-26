@@ -256,38 +256,58 @@ async def add_modify_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
         sl = float(data[3])
         target = float(data[4]) if len(data) >= 5 else None
 
-        tracked_stocks.update_one(
-            {"symbol": symbol},
-            {
-                "$set": {
-                    "symbol": symbol,
-                    "entry_price": entry,
-                    "qty": qty,
-                    "sl": sl,
-                    "target": target,
-                    "status": "tracking",
-                    "detail": "tracking",
-                    "date": datetime.datetime.now().strftime("%Y-%m-%d")
-                }
-            },
-            upsert=True
-        )
+        existing = tracked_stocks.find_one({"symbol": symbol})
 
-        await update.message.reply_text(
-            f"✅ Stock added to tracking!\n\n"
-            f"SYMBOL: {symbol}\nENTRY: ₹{entry}\nQTY: {qty}\nSL: ₹{sl}\n"
-            f"TARGET: {'❌ Not Set' if not target else f'₹{target}'}"
-        )
+        if existing:
+            # Only override SL and Target
+            update_fields = {
+                "sl": sl,
+                "last_modified": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            if target is not None:
+                update_fields["target"] = target
+
+            tracked_stocks.update_one(
+                {"symbol": symbol},
+                {"$set": update_fields}
+            )
+
+            await update.message.reply_text(
+                f"✏️ SL and Target updated!\n\n"
+                f"SYMBOL: {symbol}\n"
+                f"SL: ₹{sl}\n"
+                f"TARGET: {'❌ Not Set' if not target else f'₹{target}'}"
+            )
+        else:
+            # Insert new tracking stock
+            tracked_stocks.insert_one({
+                "symbol": symbol,
+                "entry_price": entry,
+                "qty": qty,
+                "sl": sl,
+                "target": target,
+                "status": "tracking",
+                "detail": "tracking",
+                "date": datetime.datetime.now().strftime("%Y-%m-%d")
+            })
+
+            await update.message.reply_text(
+                f"✅ Stock added to tracking!\n\n"
+                f"SYMBOL: {symbol}\nENTRY: ₹{entry}\nQTY: {qty}\nSL: ₹{sl}\n"
+                f"TARGET: {'❌ Not Set' if not target else f'₹{target}'}"
+            )
+
         return ConversationHandler.END
 
     except Exception as e:
         print("ERROR in add_modify_stock:", e)
-        await update.message.reply_text("❌ Failed to add stock. Please try again.")
+        await update.message.reply_text("❌ Failed to add/modify stock. Please try again.")
         return ConversationHandler.END
 
 async def portfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = f"📊 Portfolio: 📅 {today_str}\n\n"
 
+    # ✅ HOLDING
     text += "✅ HOLDING\n"
     holdings = tracked_stocks.find({"detail": "holding"})
     for h in holdings:
@@ -304,44 +324,61 @@ async def portfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             text += f"⚠️ {h['symbol']} | LTP Not Found\n"
 
-    text += "\n👀 TRACKING\n"
+    # ⏳ TRACKING
+    text += "\n⏳ TRACKING\n"
     tracking = tracked_stocks.find({"detail": "tracking"})
     for t in tracking:
         ltp = get_price(t['symbol'])
+        invested = t['entry_price'] * t['qty']
         text += (
-            f"👁️ {t['symbol']} | Entry: ₹{t['entry_price']} | Now: ₹{ltp if ltp else 'N/A'} | "
-            f"SL: {t.get('sl')} | Target: {t.get('target', 'None')} | Qty: {t['qty']}\n"
+            f"⏳ {t['symbol']} | Entry: ₹{t['entry_price']} | Now: ₹{ltp if ltp else 'N/A'} | "
+            f"SL: {t.get('sl')} | Target: {t.get('target', 'None')} | Qty: {t['qty']} | "
+            f"Invested: ₹{round(invested, 2)}\n"
         )
 
+    # 🔴 SOLD
     text += "\n🔴 SOLD\n"
     today_pnl = 0
-
     sold_logs = trade_logs.find({"detail": "sold"})
     for s in sold_logs:
         text += f"🔴 {s['symbol']} | Sold at: ₹{s['exit_price']} | P&L: ₹{s['pnl']} | Qty: {s['qty']}\n"
         if s.get('date') == today_str:
             today_pnl += s.get('pnl', 0)
 
-    # MongoDB aggregation for total realized P&L
+    # 📈 P&L Summary
     overall_pnl_cursor = trade_logs.aggregate([
         {"$group": {"_id": None, "total": {"$sum": "$pnl"}}}
     ])
     overall_pnl = next(overall_pnl_cursor, {}).get("total", 0)
 
-    # Append P&L summaries
     text += f"\n📅 TODAY ({today_str}) P&L: ₹{round(today_pnl, 2)}\n"
     text += "-" * 56 + "\n"
     text += f"📈 Total Realized P&L: ₹{round(overall_pnl, 2)}"
 
-
     await update.message.reply_text(text)
 
+
 async def delete_tracking(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🗑️ Please enter the stock *symbol* to delete from tracking:", parse_mode="Markdown")
+    return DELETE_STOCK
+
+async def confirm_delete_tracking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     input_symbol = update.message.text.strip().upper()
     symbol = input_symbol if input_symbol.endswith(".NS") else input_symbol + ".NS"
-    delete_stock(symbol)
-    await update.message.reply_text(f"Deleted {symbol} from tracking.")
+
+    tracked = tracked_stocks.find_one({"symbol": symbol})
+
+    if tracked:
+        if tracked["detail"] == "tracking":
+            delete_stock(symbol)
+            await update.message.reply_text(f"✅ Deleted {symbol} from tracking.")
+        else:
+            await update.message.reply_text(f"⚠️ {symbol} is in HOLDING. Cannot delete.")
+    else:
+        await update.message.reply_text(f"❌ {symbol} not found in tracking list.")
+
     return ConversationHandler.END
+
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Operation cancelled.")
@@ -383,8 +420,11 @@ def main():
         entry_points=[CommandHandler("start", start)],
         states={
             BALANCE: [MessageHandler(filters.Regex("^(1️⃣|1|[Bb]alance)$"), show_balance)],
-            DELETE_STOCK: [MessageHandler(filters.Regex("^(4️⃣|4|[Dd]elete.*)$"), delete_tracking)],
             PORTFOLIO: [MessageHandler(filters.Regex("^(3️⃣|3|[Pp]ortfolio)$"), portfolio)],
+            DELETE_STOCK: [
+               MessageHandler(filters.Regex("^(4️⃣|4|[Dd]elete.*)$"), delete_tracking),
+               MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_delete_tracking)
+               ],
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
@@ -393,10 +433,11 @@ def main():
     add_stock_conv_handler = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^(2️⃣|2|[Aa]dd.*|[Mm]odify.*)$"), ask_stock_details)],
         states={
-            ADD_STOCK: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_modify_stock)],
-        },
-        fallbacks=[CommandHandler("cancel", cancel)],
-    )
+            ADD_STOCK: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_modify_stock)] },
+            fallbacks=[CommandHandler("cancel", cancel)],
+        )
+
+
 
     # ✅ Register handlers
     application.add_handler(main_conv_handler)
