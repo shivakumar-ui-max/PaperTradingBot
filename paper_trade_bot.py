@@ -76,22 +76,18 @@ def get_balance():
 
 def get_price(symbol):
     try:
-        ticker = yf.Ticker(symbol)
+        yf_symbol = symbol if symbol.endswith(".NS") else symbol + ".NS"
+        ticker = yf.Ticker(yf_symbol)
         data = ticker.history(period='1d', interval='1m')
-
         if not data.empty:
-            ltp = float(data['Close'].iloc[-1])
-            return {"price": ltp, "source": "live"}
+            ltp = data['Close'].iloc[-1]
+            return round(float(ltp), 1)
         else:
-            info = ticker.info
-            if 'previousClose' in info:
-                close_price = float(info['previousClose'])
-                return {"price": close_price, "source": "close"}
-            else:
-                return {"price": None, "source": "unavailable"}
+            print(f"❌ No data found for {symbol}")
+            return None
     except Exception as e:
-        print(f"❌ Error fetching price for {symbol}: {e}")
-        return {"price": None, "source": "error"}
+        print(f"❌ Error fetching LTP: {e}")
+        return None
 
 
 # --- Core Trading Logic ---
@@ -116,7 +112,9 @@ def modify_stock(symbol, sl, target):
 
 def delete_stock(symbol):
     tracked_stocks.delete_one({"symbol": symbol})
-async def sell_stock(symbol, entry, qty, sl, target, price, reason, context=None, chat_id=None):
+
+
+async def sell_stock(symbol, entry, qty, sl, target, price, reason):
     pnl = (price - entry) * qty
     new_balance = get_balance()["balance"] + price * qty
     now = datetime.datetime.now()
@@ -141,20 +139,13 @@ async def sell_stock(symbol, entry, qty, sl, target, price, reason, context=None
     tracked_stocks.delete_one({"symbol": symbol})
     updateBal(new_balance)
 
-    if context and chat_id:
-        message = (
-            f"🚨 Trade Executed:\n"
-            f"{symbol}\n"
-            f"Quantity: {qty}\n"
-            f"Price: ₹{price}\n"
-            f"Reason: {reason}\n"
-            f"P&L: ₹{round(pnl, 2)}\n"
-            f"New Balance: ₹{round(new_balance, 2)}"
-        )
-        await context.bot.send_message(chat_id=chat_id, text=message)
+
 
 async def execution(symbol, entry, qty, sl, target):
     try:
+        if not symbol.endswith(".NS"):
+            symbol += ".NS"
+
         ticker = yf.Ticker(symbol)
         data = ticker.history(period='1d', interval='1m')
 
@@ -163,10 +154,8 @@ async def execution(symbol, entry, qty, sl, target):
             return
 
         latest_candle = data.iloc[-1]
-        open_ = float(latest_candle['Open'])
         high = float(latest_candle['High'])
         low = float(latest_candle['Low'])
-        close = float(latest_candle['Close'])
 
         tracked = tracked_stocks.find_one({"symbol": symbol})
         if not tracked:
@@ -337,7 +326,7 @@ async def portfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ltp = get_price(t['symbol'])
         invested = t['entry_price'] * t['qty']
         text += (
-            f"⏳ {t['symbol']} | Entry: ₹{t['entry_price']} | Now: ₹{ltp if ltp else 'N/A'} | "
+            f"⏳ {t['symbol']} | Entry: ₹{t['entry_price']} | Now: ₹{ltp} | "
             f"SL: {t.get('sl')} | Target: {t.get('target', 'None')} | Qty: {t['qty']} | "
             f"Invested: ₹{round(invested, 2)}\n"
         )
