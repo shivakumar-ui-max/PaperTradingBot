@@ -219,6 +219,9 @@ async def add_modify_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     try:
         parts = text.split(',')
+        if len(parts) < 4:
+            raise ValueError("Not enough parameters")
+
         input_symbol = parts[0].strip().upper()
         symbol = input_symbol if input_symbol.endswith(".NS") else input_symbol + ".NS"
         entry = float(parts[1].strip())
@@ -230,12 +233,20 @@ async def add_modify_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
             modify_stock(symbol, sl, target)
             await update.message.reply_text(f"{symbol} modified successfully!")
         else:
-            add_stock(symbol, entry, qty, sl, target,)
+            add_stock(symbol, entry, qty, sl, target)
             await execution(symbol, entry, qty, sl, target, context=context, chat_id=update.effective_chat.id)
             await update.message.reply_text(f"{symbol} added successfully!")
+
+        return ConversationHandler.END
+
     except Exception as e:
-        await update.message.reply_text("❌ Invalid format. Use: SYMBOL, ENTRY, QTY, SL, [TARGET]")
+        await update.message.reply_text(
+            "❌ Invalid format. Use: SYMBOL, ENTRY, QTY, SL, [TARGET]\n\n"
+            "📌 Example:\nRELIANCE, 2800, 5, 2750, 2900\nALLCARGO, 34.5, 580, 33.5"
+        )
         print(f"Error in add_modify_stock: {e}")
+        return ADD_STOCK  # stay in same state
+
 
 
     return ConversationHandler.END
