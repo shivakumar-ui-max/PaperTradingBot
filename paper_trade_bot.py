@@ -313,10 +313,14 @@ async def monitor_all(application):
                 qty=stock['qty'],
                 sl=stock['sl'],
                 target=stock.get('target'),
-                context=application.bot,
+                context=application,
                 chat_id=MY_CHAT_ID
             )
         await asyncio.sleep(10)
+
+async def on_startup(application):
+    # Schedule the monitor_all task after the application starts
+    application.create_task(monitor_all(application))
 
 
 def main():
@@ -341,8 +345,8 @@ def main():
     application.add_handler(CommandHandler("balance", show_balance))
     application.add_handler(CommandHandler("setbalance", set_balance))
 
-    application.create_task(monitor_all(application))
-
+    application.add_handler(CommandHandler("start", start, run_async=True))
+    application.post_init = on_startup
 
     application.run_webhook(
         listen="0.0.0.0",
