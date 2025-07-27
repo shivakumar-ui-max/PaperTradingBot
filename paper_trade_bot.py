@@ -86,6 +86,29 @@ def get_price(symbol, debug=True):
         yf_symbol = symbol if symbol.endswith(".NS") else symbol + ".NS"
         ticker = yf.Ticker(yf_symbol)
 
+        # Try 1m interval first (live price)
+        data = ticker.history(period='1d', interval='1m')
+        if not data.empty and not data['Close'].dropna().empty:
+            ltp = data['Close'].dropna().iloc[-1]
+            return round(float(ltp), 2)
+
+        # If no intraday data, get last available daily close (up to 10 days back)
+        data = ticker.history(period='10d', interval='1d')
+        if not data.empty and not data['Close'].dropna().empty:
+            ltp = data['Close'].dropna().iloc[-1]
+            return round(float(ltp), 2)
+
+        if debug:
+            log_to_file(f"❌ No data found for {symbol} (may be illiquid, market closed, or Yahoo issue)")
+        return None
+    except Exception as e:
+        if debug:
+            log_to_file(f"❌ Error fetching LTP for {symbol}: {e}")
+        return None
+    try:
+        yf_symbol = symbol if symbol.endswith(".NS") else symbol + ".NS"
+        ticker = yf.Ticker(yf_symbol)
+
         # Try 1m interval first
         data = ticker.history(period='1d', interval='1m')
         if data.empty:
