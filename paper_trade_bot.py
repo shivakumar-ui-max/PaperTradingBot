@@ -85,19 +85,25 @@ def get_price(symbol, debug=True):
     try:
         yf_symbol = symbol if symbol.endswith(".NS") else symbol + ".NS"
         ticker = yf.Ticker(yf_symbol)
+
+        # Try 1m interval first
         data = ticker.history(period='1d', interval='1m')
+        if data.empty:
+            # Try 5m interval
+            data = ticker.history(period='1d', interval='5m')
+        if data.empty:
+            # Try daily interval
+            data = ticker.history(period='5d', interval='1d')
 
         if debug:
-            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             log_to_file(f"\n🕒 {now} - Fetching {yf_symbol}")
-
             try:
                 hostname = socket.gethostname()
                 ip_address = socket.gethostbyname(hostname)
                 log_to_file(f"🔍 Hostname: {hostname} | IP: {ip_address}")
             except Exception as ip_err:
                 log_to_file(f"⚠️ IP fetch error: {ip_err}")
-
             log_to_file(f"📈 Raw data head:\n{data.head()}")
 
         if not data.empty:
@@ -105,13 +111,12 @@ def get_price(symbol, debug=True):
             return round(float(ltp), 1)
         else:
             if debug:
-                log_to_file(f"❌ No data found for {symbol}")
+                log_to_file(f"❌ No data found for {symbol} after trying multiple intervals (may be illiquid, market closed, or truly delisted)")
             return None
     except Exception as e:
         if debug:
             log_to_file(f"❌ Error fetching LTP for {symbol}: {e}")
         return None
-
 
 # --- Core Trading Logic ---
 
@@ -433,46 +438,30 @@ def main():
 
     application = Application.builder().token(BOT_TOKEN).build()
 
-    # 🔁 Conversation handler for /start and menu options
+    # Conversation handler for /start and menu options
     main_conv_handler = ConversationHandler(
-    entry_points=[
-        CommandHandler("start", start),
-        MessageHandler(filters.Regex("^(4️⃣|4|[Dd]elete.*)$"), delete_tracking),
-    ],
-    states={
-        DELETE_STOCK: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_delete_tracking)
+        entry_points=[
+            CommandHandler("start", start),
+            MessageHandler(filters.Regex("^(1️⃣|1|[Bb]alance)$"), show_balance),
+            MessageHandler(filters.Regex("^(2️⃣|2|[Aa]dd.*|[Mm]odify.*)$"), ask_stock_details),
+            MessageHandler(filters.Regex("^(3️⃣|3|[Pp]ortfolio)$"), portfolio),
+            MessageHandler(filters.Regex("^(4️⃣|4|[Dd]elete.*)$"), delete_tracking),
         ],
-    },
-    fallbacks=[CommandHandler("cancel", cancel)],
-)
-
-
-    # ➕ Separate handler for Add/Modify Stock
-    add_stock_conv_handler = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^(2️⃣|2|[Aa]dd.*|[Mm]odify.*)$"), ask_stock_details)],
         states={
-            ADD_STOCK: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_modify_stock)] },
-            fallbacks=[CommandHandler("cancel", cancel)],
-        )
+            ADD_STOCK: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_modify_stock)],
+            DELETE_STOCK: [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_delete_tracking)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
 
-
-
-    # ✅ Register handlers
+    # Register handlers
     application.add_handler(main_conv_handler)
-    application.add_handler(add_stock_conv_handler)
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("portfolio", portfolio))
     application.add_handler(CommandHandler("balance", show_balance))
     application.add_handler(CommandHandler("setbalance", set_balance))
 
-    # 🧠 Quick reply handlers
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"^(1️⃣|1|[Bb]alance)$"), show_balance))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"^(2️⃣|2|[Aa]dd|[Mm]odify)$"), ask_stock_details))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"^(3️⃣|3|[Pp]ortfolio)$"), portfolio))
-    application.add_handler(MessageHandler(filters.TEXT & filters.Regex(r"^(4️⃣|4|[Dd]elete)$"), delete_tracking))
-
-    # 🌐 Webhook setup
+    # Webhook setup
     application.post_init = on_startup
     application.run_webhook(
         listen="0.0.0.0",
@@ -483,4 +472,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
