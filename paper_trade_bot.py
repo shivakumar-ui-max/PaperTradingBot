@@ -76,9 +76,17 @@ def get_balance():
 
 def get_price(symbol):
     try:
-        yf_symbol = symbol.upper().replace(".NS", "") + ".NS"
+        import socket  # Add this here
+        
+        yf_symbol = symbol if symbol.endswith(".NS") else symbol + ".NS"
         ticker = yf.Ticker(yf_symbol)
         data = ticker.history(period='1d', interval='1m')
+        
+        # ✅ Add debug logs here
+        print("🔍 Current IP:", socket.gethostbyname(socket.gethostname()))
+        print(f"📈 Raw data for {yf_symbol}:")
+        print(data.head())  # Show first few rows of the data
+        
         if not data.empty:
             ltp = data['Close'].iloc[-1]
             return round(float(ltp), 1)
