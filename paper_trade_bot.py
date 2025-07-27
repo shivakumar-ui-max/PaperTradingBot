@@ -105,41 +105,6 @@ def get_price(symbol, debug=True):
         if debug:
             log_to_file(f"❌ Error fetching LTP for {symbol}: {e}")
         return None
-    try:
-        yf_symbol = symbol if symbol.endswith(".NS") else symbol + ".NS"
-        ticker = yf.Ticker(yf_symbol)
-
-        # Try 1m interval first
-        data = ticker.history(period='1d', interval='1m')
-        if data.empty:
-            # Try 5m interval
-            data = ticker.history(period='1d', interval='5m')
-        if data.empty:
-            # Try daily interval
-            data = ticker.history(period='5d', interval='1d')
-
-        if debug:
-            now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            log_to_file(f"\n🕒 {now} - Fetching {yf_symbol}")
-            try:
-                hostname = socket.gethostname()
-                ip_address = socket.gethostbyname(hostname)
-                log_to_file(f"🔍 Hostname: {hostname} | IP: {ip_address}")
-            except Exception as ip_err:
-                log_to_file(f"⚠️ IP fetch error: {ip_err}")
-            log_to_file(f"📈 Raw data head:\n{data.head()}")
-
-        if not data.empty:
-            ltp = data['Close'].iloc[-1]
-            return round(float(ltp), 1)
-        else:
-            if debug:
-                log_to_file(f"❌ No data found for {symbol} after trying multiple intervals (may be illiquid, market closed, or truly delisted)")
-            return None
-    except Exception as e:
-        if debug:
-            log_to_file(f"❌ Error fetching LTP for {symbol}: {e}")
-        return None
 
 # --- Core Trading Logic ---
 
