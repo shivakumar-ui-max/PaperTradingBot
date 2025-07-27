@@ -9,6 +9,7 @@ from telegram.ext import (
 from pymongo import MongoClient
 from dotenv import load_dotenv
 import yfinance as yf
+import socket
 
 load_dotenv()
 
@@ -74,27 +75,41 @@ def get_balance():
     return balance.find_one({}, sort=[("_id", -1)]) or {"balance": 0}
 
 
-def get_price(symbol):
+LOG_FILE = "price_logs.txt"
+
+def log_to_file(message):
+    with open(LOG_FILE, "a") as file:
+        file.write(f"{message}\n")
+
+def get_price(symbol, debug=True):
     try:
-        import socket  # Add this here
-        
         yf_symbol = symbol if symbol.endswith(".NS") else symbol + ".NS"
         ticker = yf.Ticker(yf_symbol)
         data = ticker.history(period='1d', interval='1m')
-        
-        # ✅ Add debug logs here
-        print("🔍 Current IP:", socket.gethostbyname(socket.gethostname()))
-        print(f"📈 Raw data for {yf_symbol}:")
-        print(data.head())  # Show first few rows of the data
-        
+
+        if debug:
+            now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            log_to_file(f"\n🕒 {now} - Fetching {yf_symbol}")
+
+            try:
+                hostname = socket.gethostname()
+                ip_address = socket.gethostbyname(hostname)
+                log_to_file(f"🔍 Hostname: {hostname} | IP: {ip_address}")
+            except Exception as ip_err:
+                log_to_file(f"⚠️ IP fetch error: {ip_err}")
+
+            log_to_file(f"📈 Raw data head:\n{data.head()}")
+
         if not data.empty:
             ltp = data['Close'].iloc[-1]
             return round(float(ltp), 1)
         else:
-            print(f"❌ No data found for {symbol}")
+            if debug:
+                log_to_file(f"❌ No data found for {symbol}")
             return None
     except Exception as e:
-        print(f"❌ Error fetching LTP: {e}")
+        if debug:
+            log_to_file(f"❌ Error fetching LTP for {symbol}: {e}")
         return None
 
 
@@ -314,7 +329,7 @@ async def portfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text += "✅ HOLDING\n"
     holdings = tracked_stocks.find({"detail": "holding"})
     for h in holdings:
-        ltp = get_price(h["symbol"])
+        ltp = get_price(h["symbol"],debug=True  )
         if ltp:
             change = ((ltp - h['entry_price']) / h['entry_price']) * 100
             invested = h['entry_price'] * h['qty']
@@ -331,7 +346,7 @@ async def portfolio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text += "\👀 TRACKING\n"
     tracking = tracked_stocks.find({"detail": "tracking"})
     for t in tracking:
-        ltp = get_price(t['symbol'])
+        ltp = get_price(t['symbol'],debug=True)
         invested = t['entry_price'] * t['qty']
         text += (
             f"⏱️ {t['symbol']} | Entry: ₹{t['entry_price']} | Now: ₹{ltp} | "
