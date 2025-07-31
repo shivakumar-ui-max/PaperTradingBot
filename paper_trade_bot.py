@@ -372,38 +372,43 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # --- Main Application ---
+# --- Main Application ---
 def main():
+    # Initialize bot
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # Conversation handler
-    # Modify your existing handler in main():
+    # Register command handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("balance", show_balance))
+    application.add_handler(CommandHandler("portfolio", portfolio))
+    
+    # Conversation handler for add/delete stocks
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
+        entry_points=[
+            CommandHandler("add", lambda update, context: update.message.reply_text(
+                "Enter stock details:\nSYMBOL, ENTRY, QTY, SL, [TARGET]\n"
+                "Example: RELIANCE, 2800, 5, 2750, 2900"
+            ) or ADD_STOCK)
+        ],
         states={
             ADD_STOCK: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_stock)],
             DELETE_STOCK: [MessageHandler(filters.TEXT & ~filters.COMMAND, delete_stock)]
         },
         fallbacks=[CommandHandler("cancel", cancel)]
     )
-    
-    # Register handlers
     application.add_handler(conv_handler)
-    application.add_handler(CommandHandler("portfolio", portfolio))
-    application.add_handler(CommandHandler("balance", show_balance))
-    application.add_handler(CommandHandler("start", start))
     
-    # Start Flask server in background
-    Thread(target=lambda: app.run(port=PORT, host="0.0.0.0")).start()
-    
-    # Webhook setup
-    application.post_init = on_startup
-    application.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=BOT_TOKEN,
-        webhook_url=f"{APP_URL}/{BOT_TOKEN}",
-        webhook_server=app
-    )
+    # Production (Render) - Webhook mode
+    if os.getenv('ENVIRONMENT') == 'production':
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            webhook_url=f"{APP_URL}/{BOT_TOKEN}",
+            cert='cert.pem' if os.path.exists('cert.pem') else None
+        )
+    # Development - Polling mode
+    else:
+        application.run_polling()
 
 if __name__ == '__main__':
     main()
