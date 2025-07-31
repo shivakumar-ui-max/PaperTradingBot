@@ -347,13 +347,25 @@ async def keep_alive():
 
 # --- Startup Function ---
 async def on_startup(application: Application):
-    """Startup tasks"""
-    # Start the keep-alive task
-    application.create_task(keep_alive())
-    
-    # Set webhook
-    await application.bot.set_webhook(f"{APP_URL}/{BOT_TOKEN}")
-    logger.info("Webhook set and keep-alive started")
+    """Enhanced startup tasks"""
+    try:
+        # Test MongoDB connection
+        client.admin.command('ping')
+        logger.info("✅ MongoDB connection successful")
+        
+        # Set webhook
+        await application.bot.set_webhook(
+            url=f"{APP_URL}/{BOT_TOKEN}",
+            drop_pending_updates=True
+        )
+        logger.info("✅ Webhook set successfully")
+        
+        # Start keep-alive task
+        application.create_task(keep_alive())
+        
+    except Exception as e:
+        logger.error(f"🚨 Startup failed: {e}")
+        raise
 
 # --- Command Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -391,36 +403,76 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(" ❌ Operation cancelled.")
     return ConversationHandler.END
 
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send a help message with all available commands"""
+    help_text = """
+📈 *Paper Trading Bot Help* 📉
+
+*Main Commands:*
+/start - Show main menu
+/balance - Show current balance
+/portfolio - Show your portfolio
+/add - Add a new stock to track
+/help - Show this help message
+
+*How to Add a Stock:*
+Send: `SYMBOL, ENTRY, QTY, SL, [TARGET]`
+Example: `RELIANCE, 2800, 5, 2750, 2900`
+
+*Portfolio Shows:*
+✅ Current holdings
+⏳ Stocks you're tracking
+🗓 Recent closed trades
+💰 Your net worth and P&L
+"""
+    await update.message.reply_text(help_text, parse_mode="Markdown")
 
 # --- Main Application ---
 def main():
-    application = Application.builder().token(BOT_TOKEN).build()
-    
-    # Add this handler FIRST to process menu selections
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu_selection))
-    
-    # Then add command handlers
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("balance", show_balance))
-    application.add_handler(CommandHandler("portfolio", portfolio))
-    application.add_handler(CommandHandler("help", help_command))
-    
-    # Conversation handler
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("add", lambda u, c: handle_menu_selection(u, c))],
-        states={
-            ADD_STOCK: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_stock)],
-            DELETE_STOCK: [MessageHandler(filters.TEXT & ~filters.COMMAND, delete_stock)]
-        },
-        fallbacks=[CommandHandler("cancel", cancel)]
-    )
-    application.add_handler(conv_handler)
-    
-    # Webhook setup
-    application.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        webhook_url=f"{APP_URL}/{BOT_TOKEN}"
-    )
+    try:
+        # Initialize application with better configuration
+        application = (
+            Application.builder()
+            .token(BOT_TOKEN)
+            .concurrent_updates(True)
+            .pool_timeout(30)
+            .post_init(on_startup)  # Use post_init for startup tasks
+            .build()
+        )
+
+        # Handlers setup
+        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu_selection))
+        application.add_handler(CommandHandler("start", start))
+        application.add_handler(CommandHandler("balance", show_balance))
+        application.add_handler(CommandHandler("portfolio", portfolio))
+        application.add_handler(CommandHandler("help", help_command))
+        
+        # Conversation handler
+        conv_handler = ConversationHandler(
+            entry_points=[CommandHandler("add", lambda u, c: handle_menu_selection(u, c))],
+            states={
+                ADD_STOCK: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_stock)],
+                DELETE_STOCK: [MessageHandler(filters.TEXT & ~filters.COMMAND, delete_stock)]
+            },
+            fallbacks=[CommandHandler("cancel", cancel)]
+        )
+        application.add_handler(conv_handler)
+
+        # Production vs Development
+        if os.getenv('ENVIRONMENT') == 'PRODUCTION':
+            application.run_webhook(
+                listen="0.0.0.0",
+                port=PORT,
+                webhook_url=f"{APP_URL}/{BOT_TOKEN}",
+                max_connections=40
+            )
+        else:
+            application.run_polling()
+            
+    except Exception as e:
+        logger.error(f"🚨 Application failed: {e}")
+        raise
+
 if __name__ == '__main__':
+    # Remove Flask thread - we'll use Telegram's webhook for keep-alive
     main()
