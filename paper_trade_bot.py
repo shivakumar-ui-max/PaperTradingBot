@@ -83,27 +83,55 @@ def update_balance(amt=None):
         logger.error(f"Balance update failed: {e}")
 # --- Stock Operations ---
 async def add_stock(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle adding new stock to track"""
+    """Handle adding new stock to track with more flexible input"""
     try:
         text = update.message.text
-        symbol, entry, qty, sl, *target = [x.strip() for x in text.split(",")]
+        parts = [x.strip() for x in text.split(",")]
         
+        # Validate minimum parts
+        if len(parts) < 4:
+            raise ValueError("Not enough parameters")
+            
+        # Process symbol (handle case sensitivity)
+        symbol = parts[0].upper()
+        if not symbol.endswith(".NS"):
+            symbol += ".NS"
+            
+        # Process other parameters
+        entry = float(parts[1])
+        qty = int(parts[2])
+        sl = float(parts[3])
+        target = float(parts[4]) if len(parts) > 4 else None
+        
+        # Insert into database
         tracked_stocks.insert_one({
-            "symbol": symbol.upper(),
-            "entry_price": float(entry),
-            "qty": int(qty),
-            "sl": float(sl),
-            "target": float(target[0]) if target else None,
+            "symbol": symbol,
+            "entry_price": entry,
+            "qty": qty,
+            "sl": sl,
+            "target": target,
             "detail": "tracking",
             "created_at": datetime.datetime.now()
         })
         
         await update.message.reply_text(
-            f"✅ Added {symbol.upper()}:\n"
+            f"✅ Added {symbol}:\n"
             f"Entry: ₹{entry} | Qty: {qty}\n"
-            f"SL: ₹{sl} | Target: ₹{target[0] if target else 'Not Set'}"
+            f"SL: ₹{sl} | Target: ₹{target if target else 'Not Set'}"
         )
         return ConversationHandler.END
+        
+    except Exception as e:
+        logger.error(f"Add stock failed: {e}")
+        await update.message.reply_text(
+            "❌ Invalid format. Please use:\n"
+            "SYMBOL, ENTRY, QTY, SL, [TARGET]\n"
+            "Examples:\n"
+            "RELIANCE, 2800, 5, 2750, 2900\n"
+            "ALLCARGO.NS, 35.5, 500, 34\n"
+            "TATASTEEL, 120, 100, 115"
+        )
+        return ADD_STOCK
         
     except Exception as e:
         logger.error(f"Add stock failed: {e}")
@@ -369,13 +397,25 @@ async def on_startup(application: Application):
 
 # --- Command Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send welcome message with persistent menu"""
     keyboard = [
-        ["1. Balance", "2. Add/Modify Stock"],
-        ["3. Portfolio", "4. Delete Stock"]
+        ["💰 Balance", "📈 Add Stock"],
+        ["📊 Portfolio", "🗑️ Delete Stock"],
+        ["ℹ️ Help"]
     ]
-    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    reply_markup = ReplyKeyboardMarkup(
+        keyboard,
+        resize_keyboard=True,
+        one_time_keyboard=False,  # Menu stays until manually hidden
+        input_field_placeholder="Select an action..."
+    )
+    
     await update.message.reply_text(
-        "📈 Welcome to Paper Trading Bot\n\nSelect an action:",
+        "📈 Welcome to Paper Trading Bot\n\n"
+        "Use the buttons below or commands:\n"
+        "/add - Add new stock\n"
+        "/portfolio - View holdings\n"
+        "/help - Show all commands",
         reply_markup=reply_markup
     )
 
