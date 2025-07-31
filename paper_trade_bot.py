@@ -358,8 +358,8 @@ async def on_startup(application: Application):
 # --- Command Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        ["Balance", "Add Stock"],
-        ["Portfolio", "Delete Stock"]
+        ["1. Balance", "2. Add/Modify Stock"],
+        ["3. Portfolio", "4. Delete Stock"]
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     await update.message.reply_text(
@@ -367,24 +367,47 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=reply_markup
     )
 
+async def handle_menu_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.lower()
+    
+    if text in ["1", "1. balance", "balance"]:
+        return await show_balance(update, context)
+    elif text in ["2", "2. add stock", "add stock"]:
+        await update.message.reply_text(
+            "Enter stock details:\nSYMBOL, ENTRY, QTY, SL, [TARGET]\n"
+            "Example: RELIANCE, 2800, 5, 2750, 2900"
+        )
+        return ADD_STOCK
+    elif text in ["3", "3. portfolio", "portfolio"]:
+        return await portfolio(update, context)
+    elif text in ["4", "4. delete stock", "delete stock"]:
+        await update.message.reply_text("Enter stock symbol to delete:")
+        return DELETE_STOCK
+    else:
+        await update.message.reply_text("Please use the menu buttons or type /help")
+        return ConversationHandler.END
+
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Operation cancelled.")
+    await update.message.reply_text(" ❌ Operation cancelled.")
     return ConversationHandler.END
+
+
 # --- Main Application ---
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
     
-    # Command Handlers
+    # Add this handler FIRST to process menu selections
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_menu_selection))
+    
+    # Then add command handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("balance", show_balance))
     application.add_handler(CommandHandler("portfolio", portfolio))
+    application.add_handler(CommandHandler("help", help_command))
     
-    # Conversation Handler
+    # Conversation handler
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("add", lambda u, c: u.message.reply_text(
-            "Enter: SYMBOL, ENTRY, QTY, SL, [TARGET]\n"
-            "Example: RELIANCE, 2800, 5, 2750, 2900"
-        ) or ADD_STOCK)],
+        entry_points=[CommandHandler("add", lambda u, c: handle_menu_selection(u, c))],
         states={
             ADD_STOCK: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_stock)],
             DELETE_STOCK: [MessageHandler(filters.TEXT & ~filters.COMMAND, delete_stock)]
@@ -393,13 +416,11 @@ def main():
     )
     application.add_handler(conv_handler)
     
-    # Webhook Setup (Render-optimized)
+    # Webhook setup
     application.run_webhook(
         listen="0.0.0.0",
         port=PORT,
-        webhook_url=f"{APP_URL}/{BOT_TOKEN}",
-        cert='cert.pem' if os.path.exists('cert.pem') else None
+        webhook_url=f"{APP_URL}/{BOT_TOKEN}"
     )
-
 if __name__ == '__main__':
     main()
